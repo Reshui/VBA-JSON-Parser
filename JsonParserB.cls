@@ -14,7 +14,7 @@ Public Function ParseJSON(ByRef json$) As Object
     Set ParseJSON = ParseJsonBytes(jsonBytes)
     
 End Function
-Public Function ParseJsonBytes(ByRef json() As Byte, Optional ByRef currentTokenIndex As Long = 1, Optional maxIndex& = -1, Optional ByVal recursionDepth& = -1, Optional ByVal arrayOrObjectName$ = vbNullString) As Object
+Public Function ParseJsonBytes(ByRef json() As Byte, Optional ByRef currentTokenIndex As Long = 1, Optional maxIndex& = -1, Optional ByVal recursionDepth& = -1, Optional ByVal arrayOrObjectName$ = vbNullString, Optional ByRef utf8Bytes As Boolean = False) As Object
 ''====================================================================================================================================================================================
 '' Summary: Parse Json strings.
 '' Inputs:
@@ -251,7 +251,7 @@ Private Function GetNextTokenDelimiterIndex(json() As Byte, currentTokenIndex&, 
     GetNextTokenDelimiterIndex = nextTokenDelimiterIndex
     
 End Function
-Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte, startIndex&, maxIndex&) As Byte()
+Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte, startTokenIndex&, maxTokenIndex&) As Byte()
 '========================================================================================================================================
 'Summary: Converts special characters that are lead by a \.
 ' \n: new line; \t: tab; \b: backspace; \r: carriage return; \f: form feed; \{/0"}: same character if not escaped; \\: escapes backslash
@@ -261,13 +261,13 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte,
     
     On Error GoTo PropagateError
     '(LBound(json) - 1) will adjust for non 1 based arrays.
-    If InStrB(startIndex - (LBound(json) - 1), json, "\") > 0 Then
+    If InStrB(startTokenIndex - (LBound(json) - 1), json, "\") > 0 Then
     
-        ReDim outputBytes(startIndex To maxIndex)
+        ReDim outputBytes(startTokenIndex To maxTokenIndex)
         'outputIndex is incremented by 2 whenever a value is added so initialize at -2.
-        outputIndex = -2 + startIndex
+        outputIndex = -2 + startTokenIndex
         
-        For iMainLoop = startIndex To maxIndex Step 2
+        For iMainLoop = startTokenIndex To maxTokenIndex Step 2
         
             Select Case json(iMainLoop)
                 
@@ -346,7 +346,7 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte,
         
         ReDim Preserve outputBytes(0 To outputIndex + 1)
     Else
-        outputBytes = GetArraySubset(json, startIndex, maxIndex)
+        outputBytes = GetArraySubset(json, startTokenIndex, maxTokenIndex)
     End If
     
     ProcessSpecialCharactersInJsonStringValue = outputBytes
@@ -357,8 +357,11 @@ PropagateError:
     
 End Function
 Private Function TryFindFirstAndLastNonWhitespace(json() As Byte, startIndex&, maxIndex&, first&, last&) As Boolean
+'========================================================================================================================
 '   Summary:
 '       Removes space,newlines,line feeds and carriage returns from both ends of [query] if they exist.
+'   first and last will be set to the relevant non-white space bytes.
+'============================================================================================================
     Dim iCountRight&, iCountLeft&, _
     cleaningLeft As Boolean, cleaningRight As Boolean, iCount As Byte, errorLeft As Boolean, _
     errorRight As Boolean, cleanOnLeft As Boolean, cleanOnRight As Boolean
@@ -377,10 +380,11 @@ Private Function TryFindFirstAndLastNonWhitespace(json() As Byte, startIndex&, m
             Select Case json(iCountLeft)
                 Case 32, 9, 10, 13
                     iCountLeft = iCountLeft + 2
-                    cleaningLeft = iCountLeft > maxIndex
+                    cleaningLeft = iCountLeft < iCountRight And iCountLeft <= maxIndex
                     cleanOnLeft = True
                 Case Else
                     cleaningLeft = False
+                    first = iCountLeft
             End Select
             
         End If
@@ -390,17 +394,18 @@ Try_Right:
             Select Case json(iCountRight)
                 Case 32, 9, 10, 13 '12
                     iCountRight = iCountRight - 2
-                    cleaningRight = iCountRight < maxIndex
+                    cleaningRight = iCountRight > iCountLeft And iCountRight >= startIndex
                     cleanOnRight = True
                 Case Else
                     cleaningRight = False
+                    last = iCountRight
             End Select
         End If
 NextLoop:
     Loop
 '   iCountLeft will always be 2 more than what you want.
-    first = IIf(cleanOnLeft, iCountLeft - 2, startIndex)
-    last = IIf(cleanOnRight, iCountRight - 2, maxIndex)
+    'first = IIf(cleanOnLeft, iCountLeft - 2, startIndex)
+    'last = IIf(cleanOnRight, iCountRight - 2, maxIndex)
 
     If (errorLeft And errorRight) Or (first = maxIndex - 1 And last = startIndex) Then
         'Byte sequence is just whitespace characters
