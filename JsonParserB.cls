@@ -259,17 +259,19 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte,
 ' \n: new line; \t: tab; \b: backspace; \r: carriage return; \f: form feed; \{/0"}: same character if not escaped; \\: escapes backslash
 '========================================================================================================================================
     Dim outputBytes() As Byte, iMainLoop&, outputIndex&, ignoreSpecialCharacter As Boolean, lboundMinusOne&, _
-    groupedBackslashCount&, backslashesToKeepCount&, tempCount&, uniCode(8) As Byte, processBytes As Boolean, specialChars(7) As String
+    groupedBackslashCount&, backslashesToKeepCount&, tempCount&, uniCode(8) As Byte, processBytes As Boolean, specialChars(6) As String
     
     specialChars(0) = "\": specialChars(1) = """"
     specialChars(2) = vbCr: specialChars(3) = vbTab
     specialChars(4) = vbLf: specialChars(5) = VBA.vbBack
-    specialChars(6) = vbNewLine: specialChars(7) = VBA.vbFormFeed
-    
-    lboundMinusOne = LBound(json) - 1
+    specialChars(6) =  VBA.vbFormFeed
 
+    '(LBound(json) - 1) will adjust for non 1 based arrays.
+    lboundMinusOne = LBound(json) - 1
+    ' Determine if there are any special characters in the byte range.
     For iMainLoop = LBound(specialChars) To UBound(specialChars)
         tempCount = InStrB(startTokenIndex - lboundMinusOne, json, specialChars(iMainLoop))
+        ' If within bounds set processBytes equal to true and exit the for loop.
         If tempCount <= (maxTokenIndex - lboundMinusOne) And tempCount > 0 Then
             processBytes = True
             Exit For
@@ -277,7 +279,7 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte,
     Next iMainLoop
 
     On Error GoTo PropagateError
-    '(LBound(json) - 1) will adjust for non 1 based arrays.
+    
     If processBytes Then
     
         ReDim outputBytes(startTokenIndex To maxTokenIndex)
@@ -364,7 +366,7 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte,
             
         Next iMainLoop
         
-        ReDim Preserve outputBytes(0 To outputIndex + 1)
+        ReDim Preserve outputBytes(lbound(outputbytes) To outputIndex + 1)
     Else
         outputBytes = GetArraySubset(json, startTokenIndex, maxTokenIndex)
     End If
@@ -565,6 +567,3 @@ Private Function GetArraySubset(query() As Byte, startIndex&, maxIndex&) As Byte
     GetArraySubset = outputA
     
 End Function
-
-
-
