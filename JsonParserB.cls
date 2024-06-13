@@ -10,7 +10,7 @@ Public Function ParseJSON(ByRef json$) As Object
     
     Dim jsonBytes() As Byte
     
-    jsonBytes = Replace$(Replace$(Replace$(json, vbLf, vbNullString), vbCr, vbNullString), vbTab, vbNullString)
+    jsonBytes = json
     Set ParseJSON = ParseJsonBytes(jsonBytes)
     
 End Function
@@ -103,7 +103,7 @@ Public Function ParseJsonBytes(ByRef json() As Byte, Optional ByRef currentToken
                     ' Ends are currently set to the first byte in a 2 byte character. Set them to the second to encapsulate.
                     keyEnd = keyEnd + 1
                     ' Adjust by 2 to remove quotes.
-                    keyForValue = GetArraySubset(json, keyStart + 2, keyEnd - 2)
+                    keyForValue = ProcessSpecialCharactersInJsonStringValue(json, keyStart + 2, keyEnd - 2)
                 End If
                 ' Ends are currently set to the first byte in a 2 byte character. Set them to the second to encapsulate.
                 valueEnd = valueEnd + 1
@@ -256,12 +256,28 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte,
 'Summary: Converts special characters that are lead by a \.
 ' \n: new line; \t: tab; \b: backspace; \r: carriage return; \f: form feed; \{/0"}: same character if not escaped; \\: escapes backslash
 '========================================================================================================================================
-    Dim outputBytes() As Byte, iMainLoop&, outputIndex&, ignoreSpecialCharacter As Boolean, _
-    groupedBackslashCount&, backslashesToKeepCount&, tempCount&, uniCode(7) As Byte
+    Dim outputBytes() As Byte, iMainLoop&, outputIndex&, ignoreSpecialCharacter As Boolean, lboundMinusOne&, _
+    groupedBackslashCount&, backslashesToKeepCount&, tempCount&, uniCode(8) As Byte, processBytes As Boolean, specialChars(6) As String
     
+    specialChars(0) = "\": specialChars(1) = """"
+    specialChars(2) = vbCr: specialChars(3) = vbTab
+    specialChars(4) = vbLf: specialChars(5) = "/"
+    specialChars(6) = vbNewLine: specialChars(7) = VBA.vbFormFeed
+    specialChars(8) = VBA.vbBack
+    
+    lboundMinusOne = LBound(json) - 1
+
+    For iMainLoop = LBound(specialChars) To UBound(specialChars)
+        tempCount = InStrB(startTokenIndex - lboundMinusOne, json, specialChars(iMainLoop))
+        If tempCount <= (maxTokenIndex - lboundMinusOne) And tempCount > 0 Then
+            processBytes = True
+            Exit For
+        End If
+    Next iMainLoop
+
     On Error GoTo PropagateError
     '(LBound(json) - 1) will adjust for non 1 based arrays.
-    If InStrB(startTokenIndex - (LBound(json) - 1), json, "\") > 0 Then
+    If processBytes Then
     
         ReDim outputBytes(startTokenIndex To maxTokenIndex)
         'outputIndex is incremented by 2 whenever a value is added so initialize at -2.
@@ -334,9 +350,12 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte,
                         End If
                         
                     ElseIf Not ignoreSpecialCharacter Then
-                        Err.Raise INVALID_JSON_FORMAT_ERROR, "ProcessSpecialCharactersInJsonStringValue", "Invalid Format: Unescaped backslash at end of string:"""
+                        Err.Raise INVALID_JSON_FORMAT_ERROR, "ProcessSpecialCharactersInJsonStringValue", "Invalid Format: Unescaped backslash at end of string: '\'"
                     End If
-                    
+                Case 47
+                    Err.Raise INVALID_JSON_FORMAT_ERROR, "ProcessSpecialCharactersInJsonStringValue", "Invalid Format: Unescaped solidius: '/'"
+                Case 10, 13, 9, 8, 12
+                    'line feed,carriage return,tab,backspace,form feed
                 Case Else
                     outputIndex = outputIndex + 2
                     outputBytes(outputIndex) = json(iMainLoop)
@@ -543,5 +562,4 @@ Private Function GetArraySubset(query() As Byte, startIndex&, maxIndex&) As Byte
     GetArraySubset = outputA
     
 End Function
-
 
