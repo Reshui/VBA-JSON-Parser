@@ -172,7 +172,7 @@ Public Function ParseJsonBytes(ByRef json() As Byte, Optional ByRef currentToken
     Set ParseJsonBytes = currentDCTN
     Exit Function
 CATCH_FAILURE:
-    Stop: Resume
+    'Stop: Resume
     PropagateError Err, "ParseJsonBytes", "Name: '" & arrayOrObjectName & "' Depth: " & recursionDepth & " Item: " & IIf(keyAvailable, keyForValue, unIdentifiedCount)
 End Function
 Private Function GetNextTokenDelimiterIndex(json() As Byte, currentTokenIndex&, maxTokenIndex&) As Long
