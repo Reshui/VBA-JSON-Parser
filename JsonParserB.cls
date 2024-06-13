@@ -41,7 +41,7 @@ Private Function ParseJSON(ByRef json() As Byte, Optional ByRef currentTokenInde
 ''====================================================================================================================================================================================
     Dim keyAvailable As Boolean, value$, unIdentifiedCount&, parsingJsonArray As Boolean, parsingJsonObject As Boolean
 
-    Dim validInput As Boolean, keyForValue$, jsonContainer As Object, keyValueDelimiterTokenIndex&, nextTokenDelimiterIndex&, keyStart&, keyEnd&, valueStart&, valueEnd&, _
+    Dim keyForValue$, jsonContainer As Object, keyValueDelimiterTokenIndex&, nextTokenDelimiterIndex&, keyStart&, keyEnd&, valueStart&, valueEnd&, _
         valueAvailable As Boolean, isValueContainedWithinUnescapedQuotes As Boolean
     
     Const quote As Byte = 34, backslash As Byte = 92, rightCurly As Byte = 125, leftCurly As Byte = 123, colon$ = ":", leftSquare As Byte = 91, rightSquare As Byte = 93 ', arrayPattern$ = "[[]*[]]", objectPattern$ = "{*}", quoteEnclosedPattern$ = """*"""
@@ -477,35 +477,6 @@ CatchRight:
     errorRight = True
     Resume NextLoop
 End Function
-Private Function IsUnescapedQuoteInText(json() As Byte, ByVal startIndexQuote&, ByVal maxIndexQuote&) As Boolean
-'   Summary:
-'       Determine if there is an unescaped quote in [json] or if the rightNonNullByte quote has been escaped.
-'   Notes:
-'       StartIndex and Max index should be locations of enclosing quotes ie: value =34.
-    On Error GoTo Propagate
-    Dim unescapedQuoteFound As Boolean, lboundMinusOne&: lboundMinusOne = LBound(json) - 1
-    Const quote$ = """", slash$ = "\"
-    
-    startIndexQuote = startIndexQuote - lboundMinusOne
-    maxIndexQuote = maxIndexQuote - lboundMinusOne
-
-    Do
-        startIndexQuote = InStrB(startIndexQuote + BYTE_OFFSET, json, quote)
-        If startIndexQuote <> 0 Then
-            Select Case startIndexQuote
-                Case maxIndexQuote
-                    'Quote at end of string. True if escaped.
-                    unescapedQuoteFound = json(startIndexQuote - BYTE_OFFSET) = 92
-                Case Else
-                    unescapedQuoteFound = json(startIndexQuote - BYTE_OFFSET) <> 92
-            End Select
-        End If
-    Loop While startIndexQuote <> 0 And startIndexQuote <= maxIndexQuote And Not unescapedQuoteFound
-    Exit Function
-Propagate:
-    PropagateError Err, "IsUnescapedQuoteInText"
-End Function
-
 Private Function LocationOfCharacterNotBetweenTextTokens(ByRef query() As Byte, character$, startIndex&, maxIndex&) As Long
 '===============================================================================================================
 ' Summary
@@ -532,7 +503,7 @@ Private Function LocationOfCharacterNotBetweenTextTokens(ByRef query() As Byte, 
 
             locationOfQuoteBaseOne = leftQuoteIndexBaseOne
             Do
-                locationOfQuoteBaseOne = InStrB(locationOfQuoteBaseOne + BYTE_OFFSET, query, quote)                
+                locationOfQuoteBaseOne = InStrB(locationOfQuoteBaseOne + BYTE_OFFSET, query, quote)
                 If Not locationOfQuoteBaseOne = 0 Then
                     ' Set to TRUE if previous character in the string isn't a backslash.
                     isNotEscapedQuote = query(locationOfQuoteBaseOne - BYTE_OFFSET + lboundMinusOne) <> backSlashCode
