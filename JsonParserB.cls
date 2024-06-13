@@ -89,7 +89,11 @@ Public Function ParseJsonBytes(ByRef json() As Byte, Optional ByRef currentToken
 
                 If currentDCTN Is Nothing Then
                     If parsingJsonObject Then
-                        Set currentDCTN = New Dictionary
+                        #If Mac Then
+                            Set currentDCTN = New Dictionary
+                        #Else
+                            Set currentDCTN = CreateObject("Scripting.Dictionary")
+                        #End If
                     Else
                         Set currentDCTN = New Collection
                     End If
@@ -264,7 +268,7 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte,
     specialChars(0) = "\": specialChars(1) = """"
     specialChars(2) = vbCr: specialChars(3) = vbTab
     specialChars(4) = vbLf: specialChars(5) = VBA.vbBack
-    specialChars(6) =  VBA.vbFormFeed
+    specialChars(6) = VBA.vbFormFeed
 
     '(LBound(json) - 1) will adjust for non 1 based arrays.
     lboundMinusOne = LBound(json) - 1
@@ -273,8 +277,7 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte,
         tempCount = InStrB(startTokenIndex - lboundMinusOne, json, specialChars(iMainLoop))
         ' If within bounds set processBytes equal to true and exit the for loop.
         If tempCount <= (maxTokenIndex - lboundMinusOne) And tempCount > 0 Then
-            processBytes = True
-            Exit For
+            processBytes = True: Exit For
         End If
     Next iMainLoop
 
@@ -366,7 +369,7 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte,
             
         Next iMainLoop
         
-        ReDim Preserve outputBytes(lbound(outputbytes) To outputIndex + 1)
+        ReDim Preserve outputBytes(LBound(outputBytes) To outputIndex + 1)
     Else
         outputBytes = GetArraySubset(json, startTokenIndex, maxTokenIndex)
     End If
@@ -567,3 +570,4 @@ Private Function GetArraySubset(query() As Byte, startIndex&, maxIndex&) As Byte
     GetArraySubset = outputA
     
 End Function
+
