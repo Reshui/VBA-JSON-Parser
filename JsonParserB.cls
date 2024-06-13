@@ -116,7 +116,7 @@ Public Function ParseJsonBytes(ByRef json() As Byte, Optional ByRef currentToken
                     End If
                 Else
                     
-                    value = ProcessSpecialCharactersInJsonStringValue(json, valueStart, valueEnd)
+                    value = GetArraySubset(json, valueStart, valueEnd) 'ProcessSpecialCharactersInJsonStringValue(json, valueStart, valueEnd)
                     
                     If IsNumeric(value) Then
                         If parsingJsonObject Then
@@ -143,7 +143,7 @@ Public Function ParseJsonBytes(ByRef json() As Byte, Optional ByRef currentToken
                                 If (json(valueStart) = quote And json(valueEnd - 1) = quote) Then
                                     If Not IsUnescapedQuoteInText(json, valueStart, valueEnd - 1) Then
                                         ' Remove the enclosing quotes
-                                        value = Mid$(value, 2, Len(value) - 2)
+                                        value = ProcessSpecialCharactersInJsonStringValue(json, valueStart + 2, valueEnd - 2)
                                         
                                         If parsingJsonObject Then
                                             currentDCTN.Add keyForValue, value
@@ -172,7 +172,7 @@ Public Function ParseJsonBytes(ByRef json() As Byte, Optional ByRef currentToken
     Set ParseJsonBytes = currentDCTN
     Exit Function
 CATCH_FAILURE:
-    'Stop: Resume
+    Stop: Resume
     PropagateError Err, "ParseJsonBytes", "Name: '" & arrayOrObjectName & "' Depth: " & recursionDepth & " Item: " & IIf(keyAvailable, keyForValue, unIdentifiedCount)
 End Function
 Private Function GetNextTokenDelimiterIndex(json() As Byte, currentTokenIndex&, maxTokenIndex&) As Long
@@ -249,7 +249,9 @@ Private Function GetNextTokenDelimiterIndex(json() As Byte, currentTokenIndex&, 
     End Select
     
     GetNextTokenDelimiterIndex = nextTokenDelimiterIndex
-    
+    Exit Function
+Propagate:
+    PropagateError Err, "GetNextTokenDelimiterIndex"
 End Function
 Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte, startTokenIndex&, maxTokenIndex&) As Byte()
 '========================================================================================================================================
@@ -257,7 +259,7 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte,
 ' \n: new line; \t: tab; \b: backspace; \r: carriage return; \f: form feed; \{/0"}: same character if not escaped; \\: escapes backslash
 '========================================================================================================================================
     Dim outputBytes() As Byte, iMainLoop&, outputIndex&, ignoreSpecialCharacter As Boolean, lboundMinusOne&, _
-    groupedBackslashCount&, backslashesToKeepCount&, tempCount&, uniCode(8) As Byte, processBytes As Boolean, specialChars(6) As String
+    groupedBackslashCount&, backslashesToKeepCount&, tempCount&, uniCode(8) As Byte, processBytes As Boolean, specialChars(8) As String
     
     specialChars(0) = "\": specialChars(1) = """"
     specialChars(2) = vbCr: specialChars(3) = vbTab
@@ -399,7 +401,7 @@ Private Function TryFindFirstAndLastNonWhitespace(json() As Byte, startIndex&, m
             Select Case json(iCountLeft)
                 Case 32, 9, 10, 13
                     iCountLeft = iCountLeft + 2
-                    cleaningLeft = not icountleft > icountRight and iCountLeft <= maxIndex
+                    cleaningLeft = Not iCountLeft > iCountRight And iCountLeft <= maxIndex
                     cleanOnLeft = True
                 Case Else
                     cleaningLeft = False
@@ -413,7 +415,7 @@ Try_Right:
             Select Case json(iCountRight)
                 Case 32, 9, 10, 13 '12
                     iCountRight = iCountRight - 2
-                    cleaningRight = not iCountRight < iCountLeft And iCountRight >= startIndex
+                    cleaningRight = Not iCountRight < iCountLeft And iCountRight >= startIndex
                     cleanOnRight = True
                 Case Else
                     cleaningRight = False
@@ -426,7 +428,7 @@ NextLoop:
     'first = IIf(cleanOnLeft, iCountLeft - 2, startIndex)
     'last = IIf(cleanOnRight, iCountRight - 2, maxIndex)
 
-    If (errorLeft And errorRight) Or (icountleft > icountright) Then
+    If (errorLeft And errorRight) Or (iCountLeft > iCountRight) Then
         'Byte sequence is just whitespace characters
         TryFindFirstAndLastNonWhitespace = False
     Else
@@ -449,7 +451,7 @@ Private Function IsUnescapedQuoteInText(json() As Byte, ByVal startIndexQuote&, 
 '       Determine if there is an unescaped quote in [json] or if the last quote has been escaped.
 '   Notes:
 '       StartIndex and Max index should be locations of enclosing quotes ie: value =34.
-
+    On Error GoTo Propagate
     Dim unescapedQuoteFound As Boolean, lboundMinusOne&: lboundMinusOne = LBound(json) - 1
     Const quote$ = """", slash$ = "\"
     
@@ -468,7 +470,9 @@ Private Function IsUnescapedQuoteInText(json() As Byte, ByVal startIndexQuote&, 
             End Select
         End If
     Loop While startIndexQuote <> 0 And startIndexQuote <= maxIndexQuote And Not unescapedQuoteFound
-
+    Exit Function
+Propagate:
+    PropagateError Err, "IsUnescapedQuoteInText"
 End Function
 
 Private Function LocationOfCharacterNotBetweenTextTokens(ByRef query() As Byte, character$, startIndex&, maxIndex&) As Long
@@ -562,4 +566,3 @@ Private Function GetArraySubset(query() As Byte, startIndex&, maxIndex&) As Byte
     GetArraySubset = outputA
     
 End Function
-
