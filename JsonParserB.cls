@@ -568,6 +568,24 @@ Private Function GetArraySubset(query() As Byte, startIndex&, maxIndex&) As Byte
     GetArraySubset = outputA
     
 End Function
+Private Sub AddParentToErrSource(e As ErrObject, parentName$)
+    
+    Dim sourceParts$()
+    Const delim$ = ": "
+    
+    With e
+    
+        If InStrB(1, .source, delim) = 0 Then
+            .source = "[" & .source & "]" & delim & parentName
+        Else
+            sourceParts = Split(.source, delim, 2)
+            sourceParts(1) = parentName & " > " & sourceParts(1)
+            .source = Join(sourceParts, delim)
+        End If
+                    
+    End With
+    
+End Sub
 Private Sub PreProcessData(ByRef jsonBytes() As Byte)
     
     Dim i&, nullCount&, unicodeBytes As Boolean, offset&, currentUBound&, simpleMap As Boolean
@@ -714,3 +732,4 @@ End Sub
 '    Loop
 '    DecodeUTF8 = MidB$(utf16, 1, j)
 'End Function
+
