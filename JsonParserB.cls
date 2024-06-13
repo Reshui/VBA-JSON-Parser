@@ -399,7 +399,7 @@ Private Function TryFindFirstAndLastNonWhitespace(json() As Byte, startIndex&, m
             Select Case json(iCountLeft)
                 Case 32, 9, 10, 13
                     iCountLeft = iCountLeft + 2
-                    cleaningLeft = iCountLeft < iCountRight And iCountLeft <= maxIndex
+                    cleaningLeft = not icountleft > icountRight and iCountLeft <= maxIndex
                     cleanOnLeft = True
                 Case Else
                     cleaningLeft = False
@@ -413,7 +413,7 @@ Try_Right:
             Select Case json(iCountRight)
                 Case 32, 9, 10, 13 '12
                     iCountRight = iCountRight - 2
-                    cleaningRight = iCountRight > iCountLeft And iCountRight >= startIndex
+                    cleaningRight = not iCountRight < iCountLeft And iCountRight >= startIndex
                     cleanOnRight = True
                 Case Else
                     cleaningRight = False
@@ -426,7 +426,7 @@ NextLoop:
     'first = IIf(cleanOnLeft, iCountLeft - 2, startIndex)
     'last = IIf(cleanOnRight, iCountRight - 2, maxIndex)
 
-    If (errorLeft And errorRight) Or (first = maxIndex - 1 And last = startIndex) Then
+    If (errorLeft And errorRight) Or (icountleft > icountright) Then
         'Byte sequence is just whitespace characters
         TryFindFirstAndLastNonWhitespace = False
     Else
