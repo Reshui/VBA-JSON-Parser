@@ -25,9 +25,10 @@ Public Function ParseJsonBytes(ByRef json() As Byte, Optional ByRef currentToken
 '' Reference:
 ''   https://www.json.org/json-en.html
 ''====================================================================================================================================================================================
-    Dim keyAvailable As Boolean, value$, unIdentifiedCount&, parsingJsonArray As Boolean, parsingJsonObject As Boolean, finalValueBytes() As Byte
+    Dim keyAvailable As Boolean, value$, unIdentifiedCount&, parsingJsonArray As Boolean, parsingJsonObject As Boolean
 
-    Dim validInput As Boolean, keyForValue$, currentDCTN As Object, keyValueDelimiterTokenIndex&, nextTokenDelimiterIndex&, keyStart&, keyEnd&, valueStart&, valueEnd&
+    Dim validInput As Boolean, keyForValue$, jsonContainer As Object, keyValueDelimiterTokenIndex&, nextTokenDelimiterIndex&, keyStart&, keyEnd&, valueStart&, valueEnd&, _
+        valueAvailable As Boolean, isValueContainedWithinUnescapedQuotes As Boolean
     
     Const quote As Byte = 34, backslash As Byte = 92, rightCurly As Byte = 125, leftCurly As Byte = 123, colon$ = ":", leftSquare As Byte = 91, rightSquare As Byte = 93 ', arrayPattern$ = "[[]*[]]", objectPattern$ = "{*}", quoteEnclosedPattern$ = """*"""
 
@@ -62,7 +63,7 @@ Public Function ParseJsonBytes(ByRef json() As Byte, Optional ByRef currentToken
                             ' Find boundaries of key using location of key-value delimiter.
                             Call TryFindFirstAndLastNonWhitespace(json, keyStart, keyValueDelimiterTokenIndex - 2, keyStart, keyEnd)
                             ' Find boundaries of value.
-                            Call TryFindFirstAndLastNonWhitespace(json, keyValueDelimiterTokenIndex + 2, nextTokenDelimiterIndex - 2, valueStart, valueEnd)
+                            valueAvailable = TryFindFirstAndLastNonWhitespace(json, keyValueDelimiterTokenIndex + 2, nextTokenDelimiterIndex - 2, valueStart, valueEnd)
                             ' Ensure that all quotes except enclosing quotes are escaped.
                             If Not IsUnescapedQuoteInText(json, keyStart, keyEnd) Then
                                 ' Ensure Key ends in an unescaped quote and doesn't overlap with value.
@@ -87,79 +88,75 @@ Public Function ParseJsonBytes(ByRef json() As Byte, Optional ByRef currentToken
 
             If parsingJsonArray Or (keyAvailable And parsingJsonObject) Then
 
-                If currentDCTN Is Nothing Then
+                If jsonContainer Is Nothing Then
                     If parsingJsonObject Then
                         #If Mac Then
-                            Set currentDCTN = New Dictionary
+                            Set jsonContainer = New Dictionary
                         #Else
-                            Set currentDCTN = CreateObject("Scripting.Dictionary")
+                            Set jsonContainer = CreateObject("Scripting.Dictionary")
                         #End If
                     Else
-                        Set currentDCTN = New Collection
+                        Set jsonContainer = New Collection
                     End If
                 End If
                             
                 If parsingJsonArray Then
                     unIdentifiedCount = unIdentifiedCount + 1
                     'Adjust by 2 to remove token delimiters.
-                    Call TryFindFirstAndLastNonWhitespace(json, currentTokenIndex + 2, nextTokenDelimiterIndex - 2, valueStart, valueEnd)
+                    valueAvailable = TryFindFirstAndLastNonWhitespace(json, currentTokenIndex + 2, nextTokenDelimiterIndex - 2, valueStart, valueEnd)
                 Else
                     ' Ends are currently set to the first byte in a 2 byte character. Set them to the second to encapsulate.
                     keyEnd = keyEnd + 1
                     ' Adjust by 2 to remove quotes.
-                    keyForValue = ProcessSpecialCharactersInJsonStringValue(json, keyStart + 2, keyEnd - 2)
+                    keyForValue = ProcessSpecialCharactersInJsonStringValue(json, keyStart, keyEnd)
                 End If
                 ' Ends are currently set to the first byte in a 2 byte character. Set them to the second to encapsulate.
                 valueEnd = valueEnd + 1
 
-                If (json(valueStart) = leftCurly And json(valueEnd - 1) = rightCurly) Or (json(valueStart) = leftSquare And json(valueEnd - 1) = rightSquare) Then
+                If valueAvailable And ((json(valueStart) = leftCurly And json(valueEnd - 1) = rightCurly) Or (json(valueStart) = leftSquare And json(valueEnd - 1) = rightSquare)) Then
                     If parsingJsonObject Then
-                        currentDCTN.Add IIf(keyAvailable, keyForValue, unIdentifiedCount), ParseJsonBytes(json, valueStart, valueEnd, recursionDepth, keyForValue)
+                        jsonContainer.Add IIf(keyAvailable, keyForValue, unIdentifiedCount), ParseJsonBytes(json, valueStart, valueEnd, recursionDepth, keyForValue)
                     Else
-                        currentDCTN.Add ParseJsonBytes(json, valueStart, valueEnd, recursionDepth, keyForValue)
+                        jsonContainer.Add ParseJsonBytes(json, valueStart, valueEnd, recursionDepth, IIf(keyAvailable, keyForValue, unIdentifiedCount))
                     End If
                 Else
-                    
-                    value = GetArraySubset(json, valueStart, valueEnd) 'ProcessSpecialCharactersInJsonStringValue(json, valueStart, valueEnd)
+                    ' This function will remove a pair of unescaped quotes at the beginning and end of string values.
+                    ' Throws an error if any other unescaped quotes.
+                    If valueAvailable Then
+                        value = ProcessSpecialCharactersInJsonStringValue(json, valueStart, valueEnd, isValueContainedWithinUnescapedQuotes)
+                    Else
+                        value = "null"
+                    End If
                     
                     If IsNumeric(value) Then
                         If parsingJsonObject Then
-                            currentDCTN.Add keyForValue, IIf(InStrB(1, value, ".") > 0, CDbl(value), CLng(value))
+                            jsonContainer.Add keyForValue, IIf(InStrB(1, value, ".") > 0, CDbl(value), CLng(value))
                         Else
-                            currentDCTN.Add IIf(InStrB(1, value, ".") > 0, CDbl(value), CLng(value))
+                            jsonContainer.Add IIf(InStrB(1, value, ".") > 0, CDbl(value), CLng(value))
+                        End If
+                    ElseIf isValueContainedWithinUnescapedQuotes Then
+                        ' String value.
+                        If parsingJsonObject Then
+                            jsonContainer.Add keyForValue, value
+                        Else
+                            jsonContainer.Add value
                         End If
                     Else
                         Select Case value
                             Case "true", "false"
                                 If parsingJsonObject Then
-                                    currentDCTN.Add keyForValue, CBool(value)
+                                    jsonContainer.Add keyForValue, CBool(value)
                                 Else
-                                    currentDCTN.Add CBool(value)
+                                    jsonContainer.Add CBool(value)
                                 End If
                             Case "null", vbNullString
                                 If parsingJsonObject Then
-                                    currentDCTN.Add keyForValue, Null
+                                    jsonContainer.Add keyForValue, Null
                                 Else
-                                    currentDCTN.Add Null
+                                    jsonContainer.Add Null
                                 End If
                             Case Else
-                                ' Ensure that the value is enclosed in quotes to denote a valid string.
-                                If (json(valueStart) = quote And json(valueEnd - 1) = quote) Then
-                                    If Not IsUnescapedQuoteInText(json, valueStart, valueEnd - 1) Then
-                                        ' Remove the enclosing quotes
-                                        value = ProcessSpecialCharactersInJsonStringValue(json, valueStart + 2, valueEnd - 2)
-                                        
-                                        If parsingJsonObject Then
-                                            currentDCTN.Add keyForValue, value
-                                        Else
-                                            currentDCTN.Add value
-                                        End If
-                                    Else
-                                        Err.Raise INVALID_JSON_FORMAT_ERROR, "ParseJsonBytes", "Invalid format: Unescaped quote within value body or escaped last quote. : " & value
-                                    End If
-                                Else
-                                    Err.Raise INVALID_JSON_FORMAT_ERROR, "ParseJsonBytes", "Invalid format: Value isn't numeric and should be enclosed in unescaped quotes. : " & value
-                                End If
+                                Err.Raise INVALID_JSON_FORMAT_ERROR, "ParseJsonBytes", "Invalid format: Value isn't numeric or enclosed in an unescaped string: " & value
                         End Select
                     End If
                 End If
@@ -173,7 +170,7 @@ Public Function ParseJsonBytes(ByRef json() As Byte, Optional ByRef currentToken
         Loop
 
     End If
-    Set ParseJsonBytes = currentDCTN
+    Set ParseJsonBytes = jsonContainer
     Exit Function
 CATCH_FAILURE:
     'Stop: Resume
@@ -257,13 +254,13 @@ Private Function GetNextTokenDelimiterIndex(json() As Byte, currentTokenIndex&, 
 Propagate:
     PropagateError Err, "GetNextTokenDelimiterIndex"
 End Function
-Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte, startTokenIndex&, maxTokenIndex&) As Byte()
+Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte, ByRef startTokenIndex&, ByRef maxTokenIndex&, Optional ByRef isValueContainedWithinUnescapedQuotes As Boolean) As Byte()
 '========================================================================================================================================
 'Summary: Converts special characters that are lead by a \.
 ' \n: new line; \t: tab; \b: backspace; \r: carriage return; \f: form feed; \{/0"}: same character if not escaped; \\: escapes backslash
 '========================================================================================================================================
     Dim outputBytes() As Byte, iMainLoop&, outputIndex&, ignoreSpecialCharacter As Boolean, lboundMinusOne&, _
-    groupedBackslashCount&, backslashesToKeepCount&, tempCount&, uniCode(8) As Byte, processBytes As Boolean, specialChars(6) As String
+    groupedBackslashCount&, backslashesToKeepCount&, tempCount&, uniCode(8) As Byte, processBytes As Boolean, specialChars(6) As String, unescapedQuoteCount As Long
     
     specialChars(0) = "\": specialChars(1) = """"
     specialChars(2) = vbCr: specialChars(3) = vbTab
@@ -359,21 +356,33 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte,
                         Err.Raise INVALID_JSON_FORMAT_ERROR, "ProcessSpecialCharactersInJsonStringValue", "Invalid Format: Unescaped backslash at end of string: '\'"
                     End If
                 'Case 47
-                    'Err.Raise INVALID_JSON_FORMAT_ERROR, "ProcessSpecialCharactersInJsonStringValue", "Invalid Format: Unescaped solidius: '/'"
+                    'Err.Raise INVALID_JSON_FORMAT_ERROR, "Pro bvcessSpecialCharactersInJsonStringValue", "Invalid Format: Unescaped solidius: '/'"
                 Case 10, 13, 9, 8, 12
                     'line feed,carriage return,tab,backspace,form feed
                 Case Else
                     outputIndex = outputIndex + 2
                     outputBytes(outputIndex) = json(iMainLoop)
+                    If json(iMainLoop) = 34 Then unescapedQuoteCount = unescapedQuoteCount + 1
             End Select
             
         Next iMainLoop
-        
-        ReDim Preserve outputBytes(LBound(outputBytes) To outputIndex + 1)
+
+        'Ensure that the quotes are on the end.
+        If unescapedQuoteCount = 2 And (outputBytes(LBound(outputBytes)) = 34 And outputBytes(outputIndex) = 34) Then
+            'Value is a string.
+            outputBytes = GetArraySubset(outputBytes, LBound(outputBytes) + 2, outputIndex - 1)
+            isValueContainedWithinUnescapedQuotes = True
+            
+        ElseIf unescapedQuoteCount >= 1 Then
+            Err.Raise INVALID_JSON_FORMAT_ERROR, "ProcessSpecialCharactersInJsonStringValue", "Invalid Format: Unescaped Quote present in string: " & vbNewLine & CStr(GetArraySubset(outputBytes, LBound(outputBytes), outputIndex + 1))
+        Else
+            ' + 1 to encapsulate character byte.
+            ReDim Preserve outputBytes(LBound(outputBytes) To outputIndex + 1)
+        End If
     Else
         outputBytes = GetArraySubset(json, startTokenIndex, maxTokenIndex)
     End If
-    
+
     ProcessSpecialCharactersInJsonStringValue = outputBytes
     Exit Function
 
@@ -570,4 +579,3 @@ Private Function GetArraySubset(query() As Byte, startIndex&, maxIndex&) As Byte
     GetArraySubset = outputA
     
 End Function
-
