@@ -196,23 +196,34 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
     
     Exit Function
 CATCH_FAILURE:
-    Stop: Resume
+    'Stop: Resume
     PropagateError Err, "ParseJSON"
+End Function
+
+Private Function IsValueInRange(numberToCheck&, lowerBound&, upperBound&) As Boolean
+'Summary Checks if numberToCheck is contained within a given range.
+    IsValueInRange = IIf(numberToCheck >= lowerBound And numberToCheck <= upperBound, True, False)
 End Function
 
 Private Sub GetKeyAndValueIndexes(json() As Byte, currentTokenIndex&, forwardDelimiterIndex&, valueStartByte&, valueEndByte&, valueAvailable As Boolean, keyForObject$)
 
-    Dim keyValueDelimiterTokenIndex&, isKeyWithinQuotes As Boolean, keyStartByte&, KeyEndByte&, includeForwardDelimiterInValue As Boolean
+    Dim keyValueDelimiterTokenIndex&, isKeyWithinQuotes As Boolean, keyStartByte&, KeyEndByte&, _
+    includeForwardDelimiterInValue As Boolean, lowerMinusOne&
     
     Const quote& = 34, colon$ = ":"
+    On Error GoTo PropagateError
     Select Case json(forwardDelimiterIndex)
         Case 93, 125
+            lowerMinusOne = LBound(json) - 1
             ' If like [ * ] or { * } then we are processing a value and should retain the } or ].
-            If json(currentTokenIndex) = 44 Then includeForwardDelimiterInValue = True
+            If IsValueInRange(InStrB(currentTokenIndex, json, "{") + lowerMinusOne, currentTokenIndex, forwardDelimiterIndex) Then
+                includeForwardDelimiterInValue = True
+            End If
         Case 44
             includeForwardDelimiterInValue = False
+        'case
         Case Else
-            ' Big error
+            'err.Raise INVALID_JSON_FORMAT_ERROR,description:="Token start delimiter should
     End Select
     
     'If non whitespace characters exist then record their location; otherwise throw an error.
@@ -352,13 +363,14 @@ Private Function GetNextTokenDelimiterIndex(json() As Byte, currentTokenIndex&, 
         ' If nextValidCommaTokenIndexBaseOne is greater than that array or object token start,
         ' then determine if the comma is encapsulated. If it is then find the next comma that isn't encapsulated.
         '===========================================================================================================================
-        If nextCurlyOpen < nextValidCommaTokenIndexBaseOne And nextCurlyOpen > 0 And (nextCurlyOpen < nextSquareOpen Or nextSquareOpen = 0) Then
+        
+        If IsValueInRange(nextCurlyOpen,1,nextValidCommaTokenIndexBaseOne-1) And (nextCurlyOpen < nextSquareOpen Or nextSquareOpen = 0) Then
             
             tokenIndicator(0) = leftCurly: tokenIndicator(1) = rightCurly
             nextOpen = nextCurlyOpen: nextClose = nextCurlyClose
             escapeEnclosingArrayOrObject = True
-            
-        ElseIf nextSquareOpen < nextValidCommaTokenIndexBaseOne And nextSquareOpen > 0 And (nextSquareOpen < nextCurlyOpen Or nextCurlyOpen = 0) Then
+                  
+        ElseIf IsValueInRange(nextCurlyOpen,1,nextValidCommaTokenIndexBaseOne -1)   And (nextSquareOpen < nextCurlyOpen Or nextCurlyOpen = 0) Then
             
             tokenIndicator(0) = leftSquare: tokenIndicator(1) = rightSquare
             nextOpen = nextSquareOpen: nextClose = nextSquareClose
@@ -398,9 +410,8 @@ Private Function GetNextTokenDelimiterIndex(json() As Byte, currentTokenIndex&, 
             nextCurlyClose = InStrB(tempIndexBaseOne, json, rightCurly)
             nextSquareClose = InStrB(tempIndexBaseOne, json, rightSquare)
 
-            If nextCurlyClose > 0 Then nextTokenDelimiterIndex = nextCurlyClose
-            If nextSquareClose > 0 And nextSquareClose < nextTokenDelimiterIndex Then nextTokenDelimiterIndex = nextSquareClose
-            
+            If nextCurlyClose > 0 Then nextTokenDelimiterIndex = nextCurlyClose             
+            If IsValueInRange(nextSquareClose,1,nextTokenDelimiterIndex -1) Then nextTokenDelimiterIndex = nextSquareClose            
             If nextTokenDelimiterIndex > 0 Then nextTokenDelimiterIndex = nextTokenDelimiterIndex + lboundMinusOne
             If maxTokenIndex < nextTokenDelimiterIndex Then nextTokenDelimiterIndex = maxTokenIndex
 
@@ -441,8 +452,8 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte,
     ' Determine if there are any special characters in the byte range.
     For iMainLoop = LBound(specialChars) To UBound(specialChars) Step BYTE_OFFSET
         tempCount = InStrB(startByte - lboundMinusOne, json, specialChars(iMainLoop))
-        ' If within bounds set processBytes equal to true and exit the for loop.
-        If tempCount <= (endByte - lboundMinusOne) And tempCount > 0 Then
+        ' If within bounds set processBytes equal to true and exit the for loop.        
+        If IsValueInRange(tempCount,1,(endByte - lboundMinusOne) )  Then
             processBytes = True: Exit For
         End If
     Next iMainLoop
@@ -882,3 +893,4 @@ End Sub
 '    Loop
 '    DecodeUTF8 = MidB$(utf16, 1, j)
 'End Function
+
