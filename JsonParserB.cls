@@ -208,7 +208,7 @@ Private Sub GetKeyAndValueIndexes(json() As Byte, currentTokenIndex&, forwardDel
     Select Case json(forwardDelimiterIndex)
         Case 93, 125
             ' If like [ * ] or { * } then we are processing a value and should retain the } or ].
-            If json(currentTokenIndex) = json(forwardDelimiterIndex) Then includeForwardDelimiterInValue = True
+            If json(currentTokenIndex) = 44 Then includeForwardDelimiterInValue = True
         Case 44
             includeForwardDelimiterInValue = False
         Case Else
