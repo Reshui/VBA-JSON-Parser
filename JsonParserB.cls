@@ -53,10 +53,10 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
     
     On Error GoTo CATCH_FAILURE
 
-    if TryGetWhitespaceCleanedEnclosingBytes (json, LBound(json), UBound(json) - (BYTE_OFFSET - 1), cursorByte, finalByteCursor) then
+    If TryGetWhitespaceCleanedEnclosingBytes(json, LBound(json), UBound(json) - (BYTE_OFFSET - 1), cursorByte, finalByteCursor) Then
     
-        finalByteCursor = finalByteCursor - (BYTE_OFFSET - 1)        
-        unIdentifiedCount = -1        
+        finalByteCursor = finalByteCursor - (BYTE_OFFSET - 1)
+        unIdentifiedCount = -1
         
         If (json(cursorByte) = leftCurly And json(finalByteCursor) = rightCurly) Then
             isValueJsonObject = True
@@ -64,7 +64,7 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
             isValueJsonArray = True
         End If
 
-    end if
+    End If
 
     If isValueJsonObject Or isValueJsonArray Then
         
@@ -196,6 +196,7 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
     
     Exit Function
 CATCH_FAILURE:
+    Stop: Resume
     PropagateError Err, "ParseJSON"
 End Function
 
@@ -206,7 +207,8 @@ Private Sub GetKeyAndValueIndexes(json() As Byte, currentTokenIndex&, forwardDel
     Const quote& = 34, colon$ = ":"
     Select Case json(forwardDelimiterIndex)
         Case 93, 125
-            includeForwardDelimiterInValue = True
+            ' If like [ * ] or { * } then we are processing a value and should retain the } or ].
+            If json(currentTokenIndex) = json(forwardDelimiterIndex) Then includeForwardDelimiterInValue = True
         Case 44
             includeForwardDelimiterInValue = False
         Case Else
