@@ -49,7 +49,7 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
     Const rightCurly As Byte = 125, leftCurly As Byte = 123, leftSquare As Byte = 91, rightSquare As Byte = 93
     
     Const cursorLimitKey$ = "MoshiM_UC@outlook.com"
-    Const nextDelimitingParentCursorKey$ = "https://github.com/Reshui?tab=repositories"
+    Const nextDelimitingParentCursorKey$ = "https://github.com/Reshui?tab=repositories", collectionASC As Byte = 67 'C
     
     On Error GoTo CATCH_FAILURE
 
@@ -94,7 +94,7 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
                 ' nextDelimitingCursorByte = cursorByte will be true in situations like }}} because GetNextTokenDelimiterIndex increments cursorByte by 2 if it is a } or ]
                 If Not nextDelimitingCursorByte = cursorByte Then
                 
-                    isParentJsonObject = (TypeName(childObject) <> "Collection")
+                    isParentJsonObject = (Asc(TypeName(childObject)) <> collectionASC)
                 
                     If isParentJsonObject Then
                         GetKeyAndValueIndexes json, cursorByte, nextDelimitingCursorByte, valueStartByte, valueEndByte, valueAvailable, keyForValue
@@ -262,8 +262,10 @@ PropagateError:
 End Sub
 
 Private Sub AddValueToObject(parentObject As Object, Optional value$, Optional isValueString As Boolean, Optional newChild As Object, Optional keyForValue$, Optional addingNumber As Boolean, Optional numberToAdd As Long)
+        
+    Const collectionASC As Byte = 67 'C
     
-    Dim isParentJsonObject As Boolean: isParentJsonObject = (TypeName(parentObject) <> "Collection")
+    Dim isParentJsonObject As Boolean: isParentJsonObject = (Asc(TypeName(parentObject)) <> collectionASC)
 
     On Error GoTo PropagateError
     
@@ -364,13 +366,13 @@ Private Function GetNextTokenDelimiterIndex(json() As Byte, currentTokenIndex&, 
         ' then determine if the comma is encapsulated. If it is then find the next comma that isn't encapsulated.
         '===========================================================================================================================
         
-        If IsValueInRange(nextCurlyOpen,1,nextValidCommaTokenIndexBaseOne-1) And (nextCurlyOpen < nextSquareOpen Or nextSquareOpen = 0) Then
+        If IsValueInRange(nextCurlyOpen, 1, nextValidCommaTokenIndexBaseOne - 1) And (nextCurlyOpen < nextSquareOpen Or nextSquareOpen = 0) Then
             
             tokenIndicator(0) = leftCurly: tokenIndicator(1) = rightCurly
             nextOpen = nextCurlyOpen: nextClose = nextCurlyClose
             escapeEnclosingArrayOrObject = True
                   
-        ElseIf IsValueInRange(nextCurlyOpen,1,nextValidCommaTokenIndexBaseOne -1)   And (nextSquareOpen < nextCurlyOpen Or nextCurlyOpen = 0) Then
+        ElseIf IsValueInRange(nextCurlyOpen, 1, nextValidCommaTokenIndexBaseOne - 1) And (nextSquareOpen < nextCurlyOpen Or nextCurlyOpen = 0) Then
             
             tokenIndicator(0) = leftSquare: tokenIndicator(1) = rightSquare
             nextOpen = nextSquareOpen: nextClose = nextSquareClose
@@ -410,8 +412,8 @@ Private Function GetNextTokenDelimiterIndex(json() As Byte, currentTokenIndex&, 
             nextCurlyClose = InStrB(tempIndexBaseOne, json, rightCurly)
             nextSquareClose = InStrB(tempIndexBaseOne, json, rightSquare)
 
-            If nextCurlyClose > 0 Then nextTokenDelimiterIndex = nextCurlyClose             
-            If IsValueInRange(nextSquareClose,1,nextTokenDelimiterIndex -1) Then nextTokenDelimiterIndex = nextSquareClose            
+            If nextCurlyClose > 0 Then nextTokenDelimiterIndex = nextCurlyClose
+            If IsValueInRange(nextSquareClose, 1, nextTokenDelimiterIndex - 1) Then nextTokenDelimiterIndex = nextSquareClose
             If nextTokenDelimiterIndex > 0 Then nextTokenDelimiterIndex = nextTokenDelimiterIndex + lboundMinusOne
             If maxTokenIndex < nextTokenDelimiterIndex Then nextTokenDelimiterIndex = maxTokenIndex
 
@@ -452,8 +454,8 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte,
     ' Determine if there are any special characters in the byte range.
     For iMainLoop = LBound(specialChars) To UBound(specialChars) Step BYTE_OFFSET
         tempCount = InStrB(startByte - lboundMinusOne, json, specialChars(iMainLoop))
-        ' If within bounds set processBytes equal to true and exit the for loop.        
-        If IsValueInRange(tempCount,1,(endByte - lboundMinusOne) )  Then
+        ' If within bounds set processBytes equal to true and exit the for loop.
+        If IsValueInRange(tempCount, 1, (endByte - lboundMinusOne)) Then
             processBytes = True: Exit For
         End If
     Next iMainLoop
@@ -893,4 +895,6 @@ End Sub
 '    Loop
 '    DecodeUTF8 = MidB$(utf16, 1, j)
 'End Function
+
+
 
