@@ -6,7 +6,7 @@
 ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ '
 Private Const INVALID_JSON_FORMAT_ERROR& = vbObjectError + 547
 Private Const BYTE_OFFSET As Byte = 2
-#Const DebugActive = false
+#Const DebugActive = True
 
 Option Explicit
 Public Function ParseJsonString(ByRef json$, canEraseString As Boolean) As Object
@@ -73,7 +73,7 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
         
         Do While cursorByte < jsonContainer.Item(cursorLimitKey)
             ' Finds the next token that encloses a value in conjunction with the current value of cursorByte.
-            forwardEnclosingByte = GetNextTokenDelimiterIndex(json, cursorByte, jsonContainer.Item(cursorLimitKey))
+            forwardEnclosingByte = GetNextEnclosingDelimiterLocation(json, cursorByte, jsonContainer.Item(cursorLimitKey))
             ' forwardEnclosingByte = cursorByte will be true in situations like }}}
             If Not forwardEnclosingByte = cursorByte Then
             
@@ -97,7 +97,7 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
 
                         CreateObjectOnStack objectStack, createJsonObject:=isValueJsonObject
                         With objectStack
-                            ' Create heiarchy by nesting child within parent.
+                            ' Create heirarchy by nesting child within parent.
                             AddValueToObject jsonContainer, newChild:=.Item(.count), keyForValue:=keyForValue
                             Set jsonContainer = .Item(.count)
                         End With
@@ -139,24 +139,27 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
                     cursorByte = .Item(nextDelimitingParentCursorKey)
                     .Remove nextDelimitingParentCursorKey
                     .Remove cursorLimitKey
-
                     With objectStack
-                         .Remove .count
-                        Set jsonContainer = .Item(.count)
-                        isContainerJsonObject = Not TypeOf jsonContainer Is Collection
+                         If .count > 1 Then
+                            .Remove .count
+                            Set jsonContainer = .Item(.count)
+                            isContainerJsonObject = Not TypeOf jsonContainer Is Collection
+                        End If
                     End With
-                    
                 End If
             End With
         Loop
-
+        
         With jsonContainer
+            On Error Resume Next
             .Remove cursorLimitKey
             .Remove nextDelimitingParentCursorKey
+            With Err
+                If .number > 0 Then .Clear
+            End With
+            On Error GoTo CATCH_FAILURE
         End With
-        
         Set ParseJSON = jsonContainer
-        
     Else
         Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Bytes are wrong."
     End If
@@ -185,7 +188,7 @@ Private Sub CreateObjectOnStack(stack As Collection, createJsonObject As Boolean
   
 End Sub
 
-Private Function GetNextTokenDelimiterIndex(json() As Byte, cursorByte&, maxCursorByte&) As Long
+Private Function GetNextEnclosingDelimiterLocation(json() As Byte, cursorByte&, maxCursorByte&) As Long
 '===========================================================================================================
 ' Summary:
 '   Returns the location of the next token that encapsulates a complete value based on [cursorByte]
@@ -259,7 +262,7 @@ Private Function GetNextTokenDelimiterIndex(json() As Byte, cursorByte&, maxCurs
                 minValues(1) = nextSquareClose
                 ' Find min not equal to 0.
                 For nextClose = 0 To 1
-                    If minValues(nextClose) > 0 And (minValues(nextClose) < nextCursorByte Or nextCursorByte <= 0) Then nextCursorByte = minValues(nextClose)
+                    If IsValueInRange(minValues(nextClose), 1, nextCursorByte) Or nextCursorByte <= 0 Then nextCursorByte = minValues(nextClose)
                 Next nextClose
                 If nextCursorByte > 0 Then nextCursorByte = nextCursorByte + lboundMinusOne
             Else
@@ -281,13 +284,13 @@ Private Function GetNextTokenDelimiterIndex(json() As Byte, cursorByte&, maxCurs
             Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid JSON format. Calculated token index doesn't reference a value delimiter: " & Chr(json(nextCursorByte))
     End Select
     
-    GetNextTokenDelimiterIndex = nextCursorByte
+    GetNextEnclosingDelimiterLocation = nextCursorByte
     Exit Function
 Propagate:
     #If DebugActive Then
         Stop: Resume
     #Else
-        PropagateError Err, "GetNextTokenDelimiterIndex"
+        PropagateError Err, "GetNextEnclosingDelimiterLocation"
     #End If
 
 End Function
@@ -299,24 +302,10 @@ End Function
 
 Private Sub GetValueRangeAndKey(json() As Byte, minimumCursorByte&, maxCursorByte&, valueStartByte&, valueEndByte&, valueAvailable As Boolean, keyForObject$)
 
-    Dim keyValueDelimiterByte&, isKeyWithinQuotes As Boolean, keyStartByte&, KeyEndByte& ', includeForwardDelimiterInValue As Boolean, lowerMinusOne&
+    Dim keyValueDelimiterByte&, isKeyWithinQuotes As Boolean, keyStartByte&, KeyEndByte&
     
     Const quote& = 34, colon$ = ":"
     On Error GoTo PropagateError
-    'Select Case json(maxCursorByte)
-    '    Case 93, 125
-    '        lowerMinusOne = LBound(json) - 1
-    '        ' If like [ * ] or { * } then we are processing a value and should retain the } or ].
-    '        If IsValueInRange(InStrB(minimumCursorByte + BYTE_OFFSET, json, "{") + lowerMinusOne, minimumCursorByte, maxCursorByte) Then
-    '            includeForwardDelimiterInValue = True
-    '        End If
-    '    Case 44
-    '        includeForwardDelimiterInValue = False
-        'case
-     '   Case Else
-    '        'err.Raise INVALID_JSON_FORMAT_ERROR,description:="Token start delimiter should
-    'End Select
-    
     'If non whitespace characters exist then record their location; otherwise throw an error.
     If TryGetWhitespaceCleanedEnclosingBytes(json, minimumCursorByte, maxCursorByte, keyStartByte, valueEndByte) Then
         ' Does key start with a qukote?
@@ -556,8 +545,7 @@ Private Function TryGetWhitespaceCleanedEnclosingBytes(json() As Byte, ByVal reg
 '       Searches for non [ space,newlines,line feeds and carriage returns ] from both ends of [json()] if they exist.
 '       leftByteStart and rightByteEnd will be set to the relevant non-white space bytes.
 '============================================================================================================
-    Dim cleaningLeft As Boolean, cleaningRight As Boolean, iCount As Byte, errorLeft As Boolean, _
-    errorRight As Boolean, cleanOnLeft As Boolean, cleanOnRight As Boolean
+    Dim cleaningLeft As Boolean, cleaningRight As Boolean, errorLeft As Boolean, errorRight As Boolean
 
     'Max index should be the non null portion of a string byte.
     cleaningLeft = True: cleaningRight = True
@@ -570,7 +558,6 @@ Private Function TryGetWhitespaceCleanedEnclosingBytes(json() As Byte, ByVal reg
                 Case 32, 9, 10, 13
                     regionStartByte = regionStartByte + BYTE_OFFSET
                     cleaningLeft = Not regionStartByte > regionEndIndex And regionStartByte <= regionEndIndex
-                    cleanOnLeft = True
                 Case Else
                     cleaningLeft = False
                     leftByteStart = regionStartByte
@@ -584,7 +571,6 @@ Try_Right:
                 Case 32, 9, 10, 13 '12
                     regionEndIndex = regionEndIndex - BYTE_OFFSET
                     cleaningRight = Not regionEndIndex < regionStartByte And regionEndIndex >= regionStartByte
-                    cleanOnRight = True
                 Case Else
                     cleaningRight = False
                     rightByteEnd = regionEndIndex + (BYTE_OFFSET - 1)
@@ -650,9 +636,11 @@ Private Function LocationOfCharacterNotBetweenTextTokens(ByRef query() As Byte, 
     updateCharacterlocation = True
 
     Do
+        If updateCharacterlocation Then
+            characterLocationBaseOne = InStrB(rightQuoteIndexBaseOne + BYTE_OFFSET, query, character)
+            If characterLocationBaseOne = 0 Then Exit Do
+        End If
         loopCount = loopCount + 1
-        If updateCharacterlocation Then characterLocationBaseOne = InStrB(rightQuoteIndexBaseOne + BYTE_OFFSET, query, character)
-
         leftQuoteIndexBaseOne = rightQuoteIndexBaseOne
 
         For adjustLeftQuote = -1 To 0
@@ -664,7 +652,7 @@ Private Function LocationOfCharacterNotBetweenTextTokens(ByRef query() As Byte, 
                     ' Set to TRUE if previous character in the string isn't a backslash.
                     isNotEscapedQuote = query(locationOfQuoteBaseOne - BYTE_OFFSET + lboundMinusOne) <> backSlashCode
                 End If
-            Loop Until isNotEscapedQuote Or locationOfQuoteBaseOne = 0
+            Loop Until isNotEscapedQuote Or locationOfQuoteBaseOne = 0 Or (loopCount = 1 And adjustLeftQuote And characterLocationBaseOne < locationOfQuoteBaseOne And isNotEscapedQuote)
             
             If adjustLeftQuote Then
                 leftQuoteIndexBaseOne = locationOfQuoteBaseOne
@@ -695,26 +683,21 @@ Return_Default:
 End Function
 
 Private Sub PropagateError(e As ErrObject, procedureName$, Optional moreDetails$ = vbNullString)
-    
     Dim firstPropagation As Boolean, sourceParts$()
     
     Const delim$ = ": "
-    
     With e
         AddParentToErrSource e, procedureName
         If LenB(moreDetails) > 0 Then .description = moreDetails & vbNewLine & .description
         .Raise .number, .source, .description
     End With
-    
+       
 End Sub
 
 Private Sub AddParentToErrSource(e As ErrObject, parentName$)
-    
     Dim sourceParts$()
     Const delim$ = ": "
-    
     With e
-    
         If InStrB(1, .source, delim) = 0 Then
             .source = "[" & .source & "]" & delim & parentName
         Else
@@ -722,9 +705,7 @@ Private Sub AddParentToErrSource(e As ErrObject, parentName$)
             sourceParts(1) = parentName & " > " & sourceParts(1)
             .source = Join(sourceParts, delim)
         End If
-                    
     End With
-    
 End Sub
 
 Private Sub PreProcessData(ByRef jsonBytes() As Byte)
@@ -750,7 +731,6 @@ Private Sub PreProcessData(ByRef jsonBytes() As Byte)
     End If
     
     If Not unicodeBytes Then
-        
         If simpleMap Then
             ReDim Preserve jsonBytes(LBound(jsonBytes) To -LBound(jsonBytes) + (UBound(jsonBytes) - LBound(jsonBytes) + 1) * 2)
             
@@ -763,23 +743,17 @@ Private Sub PreProcessData(ByRef jsonBytes() As Byte)
         Else
             'jsonbytes=DecodeUTF8(jsonbytes,true)
         End If
-
     End If
-
-    'BYTE_OFFSET = 2 'IIf(unicodeBytes, 2, 1)
-    
 End Sub
 
 #If DebugActive Then
     Public Sub Unit_Test()
-        Dim success As Boolean, ss$
-        
+        Dim success As Boolean
         With Me
             '.ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,4]}", True
             '.ParseJsonString HTTPGet("http://worldtimeapi.org/api/timezone/America/New_York", success), True
             .ParseJsonString HTTPGet("https://publicreporting.cftc.gov/resource/jun7-fc8e.json?$select=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$group=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$limit=5000", success), True
         End With
-
     End Sub
 #End If
 
