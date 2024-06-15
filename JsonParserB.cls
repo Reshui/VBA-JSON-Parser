@@ -6,7 +6,7 @@
 ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ '
 Private Const INVALID_JSON_FORMAT_ERROR& = vbObjectError + 547
 Private Const BYTE_OFFSET As Byte = 2
-#Const DebugActive = false
+#Const DebugActive = False
 
 Option Explicit
 Public Function ParseJsonString(ByRef json$, canEraseString As Boolean) As Object
@@ -36,7 +36,7 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
     Dim value$, unIdentifiedCount&, isValueJsonObject As Boolean, isValueJsonArray As Boolean, isContainerJsonObject As Boolean, valueAvailable As Boolean
 
     Dim finalByteCursor&, keyForValue$, valueStartByte&, valueEndByte&, jsonContainer As Object, _
-    isValidatedString As Boolean, objectStack As New Collection, cursorByte&, forwardEnclosingByte&
+    isValidatedString As Boolean, objectStack As New Collection, cursorByte&, valueEnclosingTokenByte&, isKeyAvailable As Boolean
 
     Const rightCurly As Byte = 125, leftCurly As Byte = 123, leftSquare As Byte = 91, rightSquare As Byte = 93
     
@@ -70,23 +70,22 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
         
         Do While cursorByte < jsonContainer.Item(cursorLimitKey)
             ' Finds the next token that encloses a value in conjunction with the current value of cursorByte.
-            forwardEnclosingByte = GetNextEnclosingDelimiterLocation(json, cursorByte, jsonContainer.Item(cursorLimitKey))
-            ' forwardEnclosingByte = cursorByte will be true in situations like }}}
-            If Not forwardEnclosingByte = cursorByte Then
+            valueEnclosingTokenByte = GetNextEnclosingDelimiterLocation(json, cursorByte, jsonContainer.Item(cursorLimitKey))
+
+            If Not valueEnclosingTokenByte = cursorByte Then
             
                 If isContainerJsonObject Then
-                    GetValueRangeAndKey json, cursorByte + BYTE_OFFSET, forwardEnclosingByte - BYTE_OFFSET, valueStartByte, valueEndByte, valueAvailable, keyForValue
+                    GetValueRangeAndKey json, cursorByte + BYTE_OFFSET, valueEnclosingTokenByte - BYTE_OFFSET, valueStartByte, valueEndByte, valueAvailable, keyForValue, isKeyAvailable
                 End If
     
-                If Not isContainerJsonObject Or (LenB(keyForValue) > 0 And isContainerJsonObject) Then
+                If Not isContainerJsonObject Or (isKeyAvailable And isContainerJsonObject) Then
                                 
                     If Not isContainerJsonObject Then
                         unIdentifiedCount = unIdentifiedCount + 1
                         'Adjust by BYTE_OFFSET to exclude token delimiters.
-                        valueAvailable = TryGetWhitespaceCleanedEnclosingBytes(json, cursorByte + BYTE_OFFSET, forwardEnclosingByte - BYTE_OFFSET, valueStartByte, valueEndByte)
+                        valueAvailable = TryGetWhitespaceCleanedEnclosingBytes(json, cursorByte + BYTE_OFFSET, valueEnclosingTokenByte - BYTE_OFFSET, valueStartByte, valueEndByte)
                     End If
-    
-                    'If enclosed in {} or [] then parse a new object or array.
+                    'If value is enclosed in {} or [] then parse a new object or array.
                     isValueJsonObject = valueAvailable And (json(valueStartByte) = leftCurly And json(valueEndByte - (BYTE_OFFSET - 1)) = rightCurly)
                     isValueJsonArray = valueAvailable And (json(valueStartByte) = leftSquare And json(valueEndByte - (BYTE_OFFSET - 1)) = rightSquare)
 
@@ -103,7 +102,7 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
                         ' Add key to limit byte range for object.
                         AddValueToObject jsonContainer, addingNumber:=True, numberToAdd:=(valueEndByte - (BYTE_OFFSET - 1)), keyForValue:=cursorLimitKey
                         ' Byte to update cursorLocation to once array or object has been completed.
-                        AddValueToObject jsonContainer, addingNumber:=True, numberToAdd:=forwardEnclosingByte, keyForValue:=nextDelimitingParentCursorKey
+                        AddValueToObject jsonContainer, addingNumber:=True, numberToAdd:=valueEnclosingTokenByte, keyForValue:=nextDelimitingParentCursorKey
 
                         ' valueStartByte is one of either { or [
                         cursorByte = valueStartByte
@@ -118,10 +117,15 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
                             isValidatedString = False
                         End If
                         AddValueToObject jsonContainer, value, isValueString:=isValidatedString, keyForValue:=keyForValue
-                        cursorByte = forwardEnclosingByte
+                        If valueAvailable Then value = vbNullString
+                        cursorByte = valueEnclosingTokenByte
                     End If
-                    If isContainerJsonObject Then keyForValue = vbNullString
-                    value = vbNullString
+
+                    If isKeyAvailable Then
+                        keyForValue = vbNullString
+                        isKeyAvailable = False
+                    End If
+                                        
                 Else
                     'Should already be a raised error in GetValueRangeAndKey().
                     Err.Raise INVALID_JSON_FORMAT_ERROR, description:="JSON parser failed. Key unavailable for object."
@@ -133,14 +137,14 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
             With jsonContainer
                 ' If cursor byte has exceeded its set range; remove it from the stack.
                 If cursorByte >= .Item(cursorLimitKey) Then
-                    cursorByte = .Item(nextDelimitingParentCursorKey)                
+                    cursorByte = .Item(nextDelimitingParentCursorKey)
                     With objectStack
-                        If .count > 1 Then 
-                            with jsonContainer
+                        If .count > 1 Then
+                            With jsonContainer
                                 .Remove cursorLimitKey
                                 .Remove nextDelimitingParentCursorKey
-                            end with                        
-                            .Remove .count 
+                            End With
+                            .Remove .count
                             Set jsonContainer = .Item(.count)
                             isContainerJsonObject = Not TypeOf jsonContainer Is Collection
                         End If
@@ -294,7 +298,7 @@ Private Function IsValueInRange(numberToCheck&, lowerBound&, upperBound&) As Boo
     IsValueInRange = IIf(numberToCheck >= lowerBound And numberToCheck <= upperBound, True, False)
 End Function
 
-Private Sub GetValueRangeAndKey(json() As Byte, minimumCursorByte&, maxCursorByte&, valueStartByte&, valueEndByte&, valueAvailable As Boolean, keyForObject$)
+Private Sub GetValueRangeAndKey(ByRef json() As Byte, ByRef minimumCursorByte&, ByRef maxCursorByte&, ByRef valueStartByte&, ByRef valueEndByte&, ByRef valueAvailable As Boolean, ByRef keyForObject$, ByRef isKeyAvailalble As Boolean)
 
     Dim keyValueDelimiterByte&, isKeyWithinQuotes As Boolean, keyStartByte&, KeyEndByte&
     
@@ -329,7 +333,8 @@ Private Sub GetValueRangeAndKey(json() As Byte, minimumCursorByte&, maxCursorByt
     Else
         Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Expected Key-Value pair not found."
     End If
-    
+
+    isKeyAvailalble = True
     Exit Sub
 PropagateError:
     PropagateError Err, "GetValueRangeAndKey"
