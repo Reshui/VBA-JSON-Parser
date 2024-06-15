@@ -5,94 +5,90 @@
 '
 ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ '
 Private Const INVALID_JSON_FORMAT_ERROR& = vbObjectError + 547
-Private Const BYTE_OFFSET As Byte = 2
-#Const DebugActive = False
+Private Const INDEX_OFFSET As Byte = 1
+#Const DebugActive = True
 
 Option Explicit
-Public Function ParseJsonString(ByRef json$, canEraseString As Boolean) As Object
+Public Function ParseJsonString(ByRef json$) As Object
     
-    Dim jsonBytes() As Byte
+    'Dim jsonBytes() As Byte
     
-    jsonBytes = json
-    If canEraseString Then json = vbNullString
-    PreProcessData jsonBytes
-    Set ParseJsonString = ParseJSON(jsonBytes)
+    'jsonBytes = json
+    'PreProcessData jsonBytes
+    Set ParseJsonString = ParseJSON(json)
     
 End Function
 
 Public Function ParseJsonBytes(ByRef jsonBytes() As Byte) As Object
-    PreProcessData jsonBytes
-    Set ParseJsonBytes = ParseJSON(jsonBytes)
+    'PreProcessData jsonBytes
+    Set ParseJsonBytes = ParseJSON(CStr(jsonBytes))
 End Function
 
-Private Function ParseJSON(ByRef json() As Byte) As Object
+Private Function ParseJSON(ByRef json$) As Object
 ''====================================================================================================================================================================================
 '' Summary: Non-Recursive JSON byte parser.
 '' Inputs:
-''   json: Byte array to parse.
+''   jsonBytes: Byte array to parse.
 '' Reference:
-''   https://www.json.org/json-en.html
+''   https://www.jsonBytes.org/jsonBytes-en.html
 ''====================================================================================================================================================================================
-    Dim value$, unIdentifiedCount&, isValueJsonObject As Boolean, isValueJsonArray As Boolean, isContainerJsonObject As Boolean, valueAvailable As Boolean
+    Dim value$, isValueJsonObject As Boolean, isValueJsonArray As Boolean, isContainerJsonObject As Boolean, valueAvailable As Boolean
 
-    Dim finalByteCursor&, keyForValue$, valueStartByte&, valueEndByte&, jsonContainer As Object, _
-    isValidatedString As Boolean, objectStack As New Collection, cursorByte&, valueEnclosingTokenByte&, isKeyAvailable As Boolean
+    Dim jsonLength&, keyForValue$, valueStartIndex&, valueEndIndex&, jsonContainer As Object, _
+    isValidatedString As Boolean, heirarchyStack As New Collection, cursorLocation&, nextCursorLocation&, isKeyAvailable As Boolean
 
-    Const rightCurly As Byte = 125, leftCurly As Byte = 123, leftSquare As Byte = 91, rightSquare As Byte = 93
+    Const rightCurly$ = "}", leftCurly$ = "{", leftSquare$ = "[", rightSquare$ = "]"
     
     Const cursorLimitKey$ = "MoshiM_UC@outlook.com"
     Const nextDelimitingParentCursorKey$ = "https://github.com/Reshui?tab=repositories"
     
     On Error GoTo CATCH_FAILURE
-
-    If TryGetWhitespaceCleanedEnclosingBytes(json, LBound(json), UBound(json) - (BYTE_OFFSET - 1), cursorByte, finalByteCursor) Then
     
-        finalByteCursor = finalByteCursor - (BYTE_OFFSET - 1)
-        unIdentifiedCount = -1
-        
-        If (json(cursorByte) = leftCurly And json(finalByteCursor) = rightCurly) Then
-            isValueJsonObject = True
-        ElseIf (json(cursorByte) = leftSquare And json(finalByteCursor) = rightSquare) Then
-            isValueJsonArray = True
-        End If
-
+    json = Trim$(Replace$(Replace$(Replace$(json, vbTab, vbNullString), vbNewLine, vbNullString), vbLf, vbNullString))
+    
+    If Left$(json, 1) = leftCurly And Right$(json, 1) = rightCurly Then
+        isValueJsonObject = True
+    ElseIf Left$(json, 1) = leftSquare And Right$(json, 1) = rightSquare Then
+        isValueJsonArray = True
     End If
 
     If isValueJsonObject Or isValueJsonArray Then
 
-        CreateObjectOnStack objectStack, createJsonObject:=isValueJsonObject
-        Set jsonContainer = objectStack(1)
+        cursorLocation = 1: jsonLength = Len(json)
         
-        AddValueToObject jsonContainer, addingNumber:=True, numberToAdd:=finalByteCursor, keyForValue:=cursorLimitKey
-        AddValueToObject jsonContainer, addingNumber:=True, numberToAdd:=finalByteCursor, keyForValue:=nextDelimitingParentCursorKey
+        CreateObjectOnStack heirarchyStack, createJsonObject:=isValueJsonObject
+        Set jsonContainer = heirarchyStack(1)
+        
+        AddValueToObject jsonContainer, addingNumber:=True, numberToAdd:=jsonLength, keyForValue:=cursorLimitKey
+        AddValueToObject jsonContainer, addingNumber:=True, numberToAdd:=jsonLength, keyForValue:=nextDelimitingParentCursorKey
         
         isContainerJsonObject = Not TypeOf jsonContainer Is Collection
         
-        Do While cursorByte < jsonContainer.Item(cursorLimitKey)
-            ' Finds the next token that encloses a value in conjunction with the current value of cursorByte.
-            valueEnclosingTokenByte = GetNextEnclosingDelimiterLocation(json, cursorByte, jsonContainer.Item(cursorLimitKey))
+        Do While cursorLocation < jsonContainer.Item(cursorLimitKey)
+            ' Finds the next token that encloses a value in conjunction with the current value of cursorLocation.
+            nextCursorLocation = GetNextEnclosingDelimiterLocation(json, cursorLocation, jsonContainer.Item(cursorLimitKey))
 
-            If Not valueEnclosingTokenByte = cursorByte Then
+            If nextCursorLocation <> cursorLocation Then
             
                 If isContainerJsonObject Then
-                    GetValueRangeAndKey json, cursorByte + BYTE_OFFSET, valueEnclosingTokenByte - BYTE_OFFSET, valueStartByte, valueEndByte, valueAvailable, keyForValue, isKeyAvailable
+                    ' Adjust by INDEX_OFFSET to ignore enclosing token delimiters.
+                    GetValueRangeAndKey json, cursorLocation + INDEX_OFFSET, nextCursorLocation - INDEX_OFFSET, valueStartIndex, valueEndIndex, valueAvailable, keyForValue, isKeyAvailable
                 End If
     
                 If Not isContainerJsonObject Or (isKeyAvailable And isContainerJsonObject) Then
                                 
                     If Not isContainerJsonObject Then
-                        unIdentifiedCount = unIdentifiedCount + 1
-                        'Adjust by BYTE_OFFSET to exclude token delimiters.
-                        valueAvailable = TryGetWhitespaceCleanedEnclosingBytes(json, cursorByte + BYTE_OFFSET, valueEnclosingTokenByte - BYTE_OFFSET, valueStartByte, valueEndByte)
+                        'Adjust by INDEX_OFFSET to exclude token delimiters.
+                        valueAvailable = TryGetWhitespaceCleanedIndexes(json, cursorLocation + INDEX_OFFSET, nextCursorLocation - INDEX_OFFSET, valueStartIndex, valueEndIndex)
                     End If
                     'If value is enclosed in {} or [] then parse a new object or array.
-                    isValueJsonObject = valueAvailable And (json(valueStartByte) = leftCurly And json(valueEndByte - (BYTE_OFFSET - 1)) = rightCurly)
-                    isValueJsonArray = valueAvailable And (json(valueStartByte) = leftSquare And json(valueEndByte - (BYTE_OFFSET - 1)) = rightSquare)
+                    isValueJsonObject = valueAvailable And (Mid$(json, valueStartIndex, 1) = leftCurly And Mid$(json, valueEndIndex, 1) = rightCurly)
+                    isValueJsonArray = valueAvailable And (Mid$(json, valueStartIndex, 1) = leftSquare And Mid$(json, valueEndIndex, 1) = rightSquare)
 
                     If valueAvailable And (isValueJsonObject Or isValueJsonArray) Then
 
-                        CreateObjectOnStack objectStack, createJsonObject:=isValueJsonObject
-                        With objectStack
+                        CreateObjectOnStack heirarchyStack, createJsonObject:=isValueJsonObject
+                        With heirarchyStack
                             ' Create heirarchy by nesting child within parent.
                             AddValueToObject jsonContainer, newChild:=.Item(.count), keyForValue:=keyForValue
                             Set jsonContainer = .Item(.count)
@@ -100,45 +96,44 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
 
                         isContainerJsonObject = Not TypeOf jsonContainer Is Collection
                         ' Add key to limit byte range for object.
-                        AddValueToObject jsonContainer, addingNumber:=True, numberToAdd:=(valueEndByte - (BYTE_OFFSET - 1)), keyForValue:=cursorLimitKey
+                        AddValueToObject jsonContainer, addingNumber:=True, numberToAdd:=valueEndIndex, keyForValue:=cursorLimitKey
                         ' Byte to update cursorLocation to once array or object has been completed.
-                        AddValueToObject jsonContainer, addingNumber:=True, numberToAdd:=valueEnclosingTokenByte, keyForValue:=nextDelimitingParentCursorKey
-
-                        ' valueStartByte is one of either { or [
-                        cursorByte = valueStartByte
+                        AddValueToObject jsonContainer, addingNumber:=True, numberToAdd:=nextCursorLocation, keyForValue:=nextDelimitingParentCursorKey
+                        ' The token byte used to indicate the start of an object or array.
+                        cursorLocation = valueStartIndex
                     Else
                         If valueAvailable Then
                             ' This function will remove a pair of unescaped quotes at the beginning and end of string values.
                             ' Throws an error if any other unescaped quotes.
-                            value = ProcessSpecialCharactersInJsonStringValue(json, valueStartByte, valueEndByte, isValidatedString)
+                            value = ProcessSpecialCharactersInJsonStringValue(json, valueStartIndex, valueEndIndex, isValidatedString)
                         Else
-                            ' Code will convert this to null.
+                            ' Code will convert this to null in AddValueToObject() below.
                             value = vbNullString
                             isValidatedString = False
                         End If
                         AddValueToObject jsonContainer, value, isValueString:=isValidatedString, keyForValue:=keyForValue
                         If valueAvailable Then value = vbNullString
-                        cursorByte = valueEnclosingTokenByte
+                        cursorLocation = nextCursorLocation
                     End If
 
                     If isKeyAvailable Then
                         keyForValue = vbNullString
                         isKeyAvailable = False
                     End If
-                                        
                 Else
                     'Should already be a raised error in GetValueRangeAndKey().
                     Err.Raise INVALID_JSON_FORMAT_ERROR, description:="JSON parser failed. Key unavailable for object."
                 End If
             Else
-                Err.Raise INVALID_JSON_FORMAT_ERROR, description:="JSON parser failed. Current cursor = next cursor."
+                Err.Raise INVALID_JSON_FORMAT_ERROR, description:="JSON parser failed. Current cursorLocation = next cursorLocation."
             End If
             
             With jsonContainer
-                ' If cursor byte has exceeded its set range; remove it from the stack.
-                If cursorByte >= .Item(cursorLimitKey) Then
-                    cursorByte = .Item(nextDelimitingParentCursorKey)
-                    With objectStack
+                ' If cursorLocation byte has exceeded its set range; remove it from the stack.
+                If cursorLocation >= .Item(cursorLimitKey) Then
+                    cursorLocation = .Item(nextDelimitingParentCursorKey)
+                    With heirarchyStack
+                        ' Only update if not Parent of all nodes.
                         If .count > 1 Then
                             With jsonContainer
                                 .Remove cursorLimitKey
@@ -186,103 +181,91 @@ Private Sub CreateObjectOnStack(stack As Collection, createJsonObject As Boolean
   
 End Sub
 
-Private Function GetNextEnclosingDelimiterLocation(json() As Byte, cursorByte&, maxCursorByte&) As Long
+Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxIndex&) As Long
 '===========================================================================================================
 ' Summary:
-'   Returns the location of the next token that encapsulates a complete value based on [cursorByte]
+'   Returns the location of the next token that encapsulates a complete value based on [cursorLocation]
 ' Notes:
-'   [cursorByte] should be set to one of  ,[{ which will note that the text that follows is a value/array/object.
+'   [cursorLocation] should be set to one of  ,[{ which will note that the text that follows is a value/array/object.
 '===========================================================================================================
-    Dim nextSquareClose&, nextSquareOpen&, nextValidCommaTokenIndexBaseOne&, cursorByteBaseOne&, nextOpen&, nextClose&, minValues(1) As Long
+    Dim nextSquareCloseBinary&, nextSquareOpenBinary&, nextValidCommaTokenIndexBinary&, currentIndexBinary&, nextOpenBinary&, nextCloseBinary&, minValues(1) As Long
     
-    Dim nextCurlyClose&, nextCurlyOpen&, previousClose&, tokenIndicator$(1), nextCursorByte&, escapeEnclosingArrayOrObject As Boolean
-    'This is used to convert between base one and whatever base json is.
-    Dim lboundMinusOne&: lboundMinusOne = LBound(json) - 1
+    Dim maxIndexBinary&,nextCurlyCloseBinary&, nextCurlyOpenBinary&, previousCloseBinary&, tokenIndicator$(1), nextEnclosingTokenIndex&, escapeEnclosingArrayOrObject As Boolean
 
     On Error GoTo Propagate
     ' These are tokens that denote the start of a new value, or the start/end of a new object or array.
     Const comma$ = ",", leftSquare$ = "[", rightSquare$ = "]", leftCurly$ = "{", rightCurly$ = "}"
-    'Quality check to ensure
-    If (maxCursorByte - lboundMinusOne) Mod 2 <> 1 And BYTE_OFFSET = 2 Then
-        Err.Raise INVALID_JSON_FORMAT_ERROR, description:="maxCursorByte is even when it should be odd in base one."
-    End If
         
     ' Set to index of current token in array. Adjusted to be 1 based.
-    cursorByteBaseOne = cursorByte - lboundMinusOne
+    currentIndexBinary = (cursorLocation * 2) - 1
+    maxIndexBinary = (maxIndex * 2) - 1
     ' Start searching from the next byte.
-    nextCurlyOpen = InStrB(cursorByteBaseOne + BYTE_OFFSET, json, leftCurly)
-    nextCurlyClose = InStrB(cursorByteBaseOne + BYTE_OFFSET, json, rightCurly)
-    nextSquareOpen = InStrB(cursorByteBaseOne + BYTE_OFFSET, json, leftSquare)
-    nextSquareClose = InStrB(cursorByteBaseOne + BYTE_OFFSET, json, rightSquare)
-    nextValidCommaTokenIndexBaseOne = LocationOfCharacterNotBetweenTextTokens(json, comma, cursorByte + BYTE_OFFSET, maxCursorByte) - lboundMinusOne
+    nextCurlyOpenBinary = InStrB(currentIndexBinary + INDEX_OFFSET, json, leftCurly)
+    nextCurlyCloseBinary = InStrB(currentIndexBinary + INDEX_OFFSET, json, rightCurly)
+    nextSquareOpenBinary = InStrB(currentIndexBinary + INDEX_OFFSET, json, leftSquare)
+    nextSquareCloseBinary = InStrB(currentIndexBinary + INDEX_OFFSET, json, rightSquare)
+    nextValidCommaTokenIndexBinary = BinaryLocationOfCharacterNotWithinQuotes(json, comma, cursorLocation + INDEX_OFFSET, maxIndex)
 
-    nextCursorByte = nextValidCommaTokenIndexBaseOne + lboundMinusOne
+    If nextValidCommaTokenIndexBinary > 0 Then nextEnclosingTokenIndex = (nextValidCommaTokenIndexBinary \ 2) + 1
 
-    If nextValidCommaTokenIndexBaseOne > 0 Then
+    If nextValidCommaTokenIndexBinary > 0 Then
         '======================================================================================================================================
-        ' Determine which of [ or { is greater than cursorByte AND appears first.
-        ' If nextValidCommaTokenIndexBaseOne is greater than that byte,
+        ' Determine which of [ or { is greater than cursorLocation AND appears first.
+        ' If nextValidCommaTokenIndexBinary is greater than that byte,
         ' then determine if the comma is encapsulated. If it is, then find the next comma that isn't encapsulated to find the end of the value.
         '======================================================================================================================================
-        If IsValueInRange(nextCurlyOpen, cursorByteBaseOne + BYTE_OFFSET, nextValidCommaTokenIndexBaseOne - BYTE_OFFSET) And (nextCurlyOpen < nextSquareOpen Or nextSquareOpen = 0) Then
+        If IsValueInRange(nextCurlyOpenBinary, currentIndexBinary + INDEX_OFFSET, nextValidCommaTokenIndexBinary - INDEX_OFFSET) And (nextCurlyOpenBinary < nextSquareOpenBinary Or nextSquareOpenBinary = 0) Then
             
             tokenIndicator(0) = leftCurly: tokenIndicator(1) = rightCurly
-            nextOpen = nextCurlyOpen: nextClose = nextCurlyClose
+            nextOpenBinary = nextCurlyOpenBinary: nextCloseBinary = nextCurlyCloseBinary
             escapeEnclosingArrayOrObject = True
                   
-        ElseIf IsValueInRange(nextSquareOpen, cursorByteBaseOne + BYTE_OFFSET, nextValidCommaTokenIndexBaseOne - BYTE_OFFSET) And (nextSquareOpen < nextCurlyOpen Or nextCurlyOpen = 0) Then
+        ElseIf IsValueInRange(nextSquareOpenBinary, currentIndexBinary + INDEX_OFFSET, nextValidCommaTokenIndexBinary - INDEX_OFFSET) And (nextSquareOpenBinary < nextCurlyOpenBinary Or nextCurlyOpenBinary = 0) Then
             
             tokenIndicator(0) = leftSquare: tokenIndicator(1) = rightSquare
-            nextOpen = nextSquareOpen: nextClose = nextSquareClose
+            nextOpenBinary = nextSquareOpenBinary: nextCloseBinary = nextSquareCloseBinary
             escapeEnclosingArrayOrObject = True
             
         End If
     
         If escapeEnclosingArrayOrObject Then
-            'Logic: Initialize previousClose to the next token End character found after the current position in the byte array.
+            'Logic: Initialize previousCloseBinary to the next token End character found after the current position in the byte array.
             'Update the next token end and open position.
             'If open greater than the previous close or next open = 0 then you have exited the object/array that triggered the loop.
             Do
-                previousClose = nextClose
-                nextClose = InStrB(previousClose + BYTE_OFFSET, json, tokenIndicator(1))
-                nextOpen = InStrB(nextOpen + BYTE_OFFSET, json, tokenIndicator(0))
-            Loop Until nextOpen > previousClose Or nextOpen = 0 Or (previousClose + lboundMinusOne >= maxCursorByte)
+                previousCloseBinary = nextCloseBinary
+                nextCloseBinary = InStrB(previousCloseBinary + INDEX_OFFSET, json, tokenIndicator(1))
+                nextOpenBinary = InStrB(nextOpenBinary + INDEX_OFFSET, json, tokenIndicator(0))
+            Loop Until nextOpenBinary > previousCloseBinary Or nextOpenBinary = 0 Or (previousCloseBinary >= maxIndexBinary)
             
             ' Check if still within bounds.
-            If previousClose + lboundMinusOne < maxCursorByte Then
+            If previousCloseBinary < maxIndexBinary Then
                                 
-                nextValidCommaTokenIndexBaseOne = LocationOfCharacterNotBetweenTextTokens(json, comma, previousClose + lboundMinusOne, maxCursorByte)
-                nextCurlyClose = InStrB(previousClose + BYTE_OFFSET, json, rightCurly)
-                nextSquareClose = InStrB(previousClose + BYTE_OFFSET, json, rightSquare)
+                ' Find min not equal to 0 of the following.
+                nextEnclosingTokenIndex = BinaryLocationOfCharacterNotWithinQuotes(json, comma, (previousCloseBinary \ 2) + 1, maxIndex)
+                minValues(0) = InStrB(previousCloseBinary + INDEX_OFFSET, json, rightCurly)
+                minValues(1) = InStrB(previousCloseBinary + INDEX_OFFSET, json, rightSquare)
                 
-                nextCursorByte = nextValidCommaTokenIndexBaseOne - lboundMinusOne
-                minValues(0) = nextCurlyClose
-                minValues(1) = nextSquareClose
-                ' Find min not equal to 0.
-                For nextClose = 0 To 1
-                    If IsValueInRange(minValues(nextClose), 1, nextCursorByte) Or nextCursorByte <= 0 Then nextCursorByte = minValues(nextClose)
-                Next nextClose
-                If nextCursorByte > 0 Then nextCursorByte = nextCursorByte + lboundMinusOne
+                For nextCloseBinary = 0 To 1
+                    If IsValueInRange(minValues(nextCloseBinary), 1, nextEnclosingTokenIndex) Or nextEnclosingTokenIndex <= 0 Then nextEnclosingTokenIndex = minValues(nextCloseBinary)
+                Next nextCloseBinary
+                If nextEnclosingTokenIndex > 0 Then nextEnclosingTokenIndex = (nextEnclosingTokenIndex \ 2) + 1
             Else
-                nextCursorByte = maxCursorByte
+                nextEnclosingTokenIndex = maxIndex
             End If
-
         End If
     End If
 
-    Select Case nextCursorByte
-        Case Is <= 0, cursorByte, Is > maxCursorByte
-            nextCursorByte = maxCursorByte
+    Select Case nextEnclosingTokenIndex
+        Case Is <= 0, cursorLocation, Is > maxIndex
+            nextEnclosingTokenIndex = maxIndex
     End Select
     
-    Select Case json(nextCursorByte)
-        Case 44, 125, 93
-            ',}] Token is valid.
-        Case Else
-            Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid JSON format. Calculated token index doesn't reference a value delimiter: " & Chr(json(nextCursorByte))
-    End Select
+    If InStrB(1, ",]}", Mid$(json, nextEnclosingTokenIndex, 1)) = 0 Then
+        Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid JSON format. Calculated token index doesn't reference a value delimiter: " & Mid$(json, nextEnclosingTokenIndex, 1)
+    End If
     
-    GetNextEnclosingDelimiterLocation = nextCursorByte
+    GetNextEnclosingDelimiterLocation = nextEnclosingTokenIndex
     Exit Function
 Propagate:
     #If DebugActive Then
@@ -295,40 +278,40 @@ End Function
 
 Private Function IsValueInRange(numberToCheck&, lowerBound&, upperBound&) As Boolean
 'Summary Checks if numberToCheck is contained within a given range.
-    IsValueInRange = IIf(numberToCheck >= lowerBound And numberToCheck <= upperBound, True, False)
+    IsValueInRange = numberToCheck >= lowerBound And numberToCheck <= upperBound
 End Function
 
-Private Sub GetValueRangeAndKey(ByRef json() As Byte, ByRef minimumCursorByte&, ByRef maxCursorByte&, ByRef valueStartByte&, ByRef valueEndByte&, ByRef valueAvailable As Boolean, ByRef keyForObject$, ByRef isKeyAvailalble As Boolean)
+Private Sub GetValueRangeAndKey(ByRef json$, ByRef minimumIndex&, ByRef maxIndex&, ByRef valueStartLocation&, ByRef valueEndLocation&, ByRef valueAvailable As Boolean, ByRef keyForObject$, ByRef isKeyAvailalble As Boolean)
 
-    Dim keyValueDelimiterByte&, isKeyWithinQuotes As Boolean, keyStartByte&, KeyEndByte&
+    Dim keyValueDelimiterIndex&, isKeyWithinQuotes As Boolean, keyStartLocation&, keyEndLocation&
     
-    Const quote& = 34, colon$ = ":"
+    Const quote$ = """", colon$ = ":"
     On Error GoTo PropagateError
     'If non whitespace characters exist then record their location; otherwise throw an error.
-    If TryGetWhitespaceCleanedEnclosingBytes(json, minimumCursorByte, maxCursorByte, keyStartByte, valueEndByte) Then
+    If TryGetWhitespaceCleanedIndexes(json, minimumIndex, maxIndex, keyStartLocation, valueEndLocation) Then
         ' Does key start with a qukote?
-        If json(keyStartByte) = quote Then
+        If Mid$(json, keyStartLocation, 1) = quote Then
 
-            keyValueDelimiterByte = LocationOfCharacterNotBetweenTextTokens(json, colon, keyStartByte, valueEndByte)
+            keyValueDelimiterIndex = (BinaryLocationOfCharacterNotWithinQuotes(json, colon, keyStartLocation, valueEndLocation) \ 2) + 1
             ' Is there a colon outside of quotes?
-            If keyValueDelimiterByte > 0 Then
+            If keyValueDelimiterIndex > 0 Then
                 ' Find boundaries of key using location of key-value delimiter.
-                Call TryGetWhitespaceCleanedEnclosingBytes(json, keyStartByte, keyValueDelimiterByte - BYTE_OFFSET, keyStartByte, KeyEndByte)
+                Call TryGetWhitespaceCleanedIndexes(json, keyStartLocation, keyValueDelimiterIndex - INDEX_OFFSET, keyStartLocation, keyEndLocation)
                 ' Find boundaries of value.
-                valueAvailable = TryGetWhitespaceCleanedEnclosingBytes(json, keyValueDelimiterByte + BYTE_OFFSET, valueEndByte - (BYTE_OFFSET - 1), valueStartByte, valueEndByte)
+                valueAvailable = TryGetWhitespaceCleanedIndexes(json, keyValueDelimiterIndex + INDEX_OFFSET, valueEndLocation, valueStartLocation, valueEndLocation)
                 
-                If (KeyEndByte < valueStartByte) Then
+                If (keyEndLocation < valueStartLocation) Then
                     ' Will raise error if invalid key.
-                    keyForObject = ProcessSpecialCharactersInJsonStringValue(json, keyStartByte, KeyEndByte, isKeyWithinQuotes)
-                    If Not isKeyWithinQuotes Then Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key must be enclosed in quotes." & CStr(GetArraySubset(json, keyStartByte, KeyEndByte))
+                    keyForObject = ProcessSpecialCharactersInJsonStringValue(json, keyStartLocation, keyEndLocation, isKeyWithinQuotes)
+                    If Not isKeyWithinQuotes Then Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key must be enclosed in quotes." & Mid$(json, keyStartLocation, keyEndLocation - keyStartLocation + 1)
                 Else
-                    Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key overlaps with value." & CStr(GetArraySubset(json, keyStartByte, valueEndByte))
+                    Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key overlaps with value." & Mid$(json, keyStartLocation, keyEndLocation - valueEndLocation + 1)
                 End If
             Else
-                Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key-Value delimiter not found." & CStr(GetArraySubset(json, keyStartByte, valueEndByte))
+                Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key-Value delimiter not found." & Mid$(json, keyStartLocation, keyStartLocation - valueEndLocation + 1)
             End If
         Else
-            Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key doesn't start with a quote: " & CStr(GetArraySubset(json, keyStartByte, valueEndByte))
+            Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key doesn't start with a quote: " & Mid$(json, keyStartLocation, keyStartLocation - valueEndLocation + 1)
         End If
     Else
         Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Expected Key-Value pair not found."
@@ -398,28 +381,25 @@ PropagateError:
     PropagateError Err, "AddValueToObject"
 End Sub
 
-Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte, ByRef startByte&, ByRef endByte&, Optional ByRef isRangeQuoteEnclosed As Boolean) As Byte()
+Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef startIndex&, ByRef lastIndex&, Optional ByRef isRangeQuoteEnclosed As Boolean) As String
 '========================================================================================================================================
 'Summary: Converts special characters that are lead by a \.
 ' \n: new line; \t: tab; \b: backspace; \r: carriage return; \f: form feed; \{/0"}: same character if not escaped; \\: escapes backslash
 '========================================================================================================================================
-    Dim outputBytes() As Byte, iMainLoop&, outputIndex&, ignoreSpecialCharacter As Boolean, lboundMinusOne&, isDelimiterEnclosed As Boolean, _
+    Dim outputString$, iMainLoop&, outputIndex&, ignoreSpecialCharacter As Boolean, isDelimiterEnclosed As Boolean, currentCharacter$, _
     groupedBackslashCount&, countOfBackslashToKeep&, tempCount&, uniCode(8) As Byte, processBytes As Boolean, specialChars(6) As String, unescapedQuoteCount As Long
     
-    Const quote As Byte = 34, backslash As Byte = 92
+    Const quote$ = """", backslash As String = "\"""
 
-    specialChars(0) = Chr(quote): specialChars(1) = Chr(backslash)
+    specialChars(0) = quote: specialChars(1) = backslash
     specialChars(2) = vbCr: specialChars(3) = vbTab
     specialChars(4) = vbLf: specialChars(5) = VBA.vbBack
     specialChars(6) = VBA.vbFormFeed
 
-    '(LBound(json) - 1) will adjust for non 1 based arrays.
-    lboundMinusOne = LBound(json) - 1
     ' Determine if there are any special characters in the byte range.
-    For iMainLoop = LBound(specialChars) To UBound(specialChars) Step BYTE_OFFSET
-        tempCount = InStrB(startByte - lboundMinusOne, json, specialChars(iMainLoop))
+    For iMainLoop = LBound(specialChars) To UBound(specialChars) Step INDEX_OFFSET
         ' If within bounds set processBytes equal to true and exit the for loop.
-        If IsValueInRange(tempCount, 1, (endByte - lboundMinusOne)) Then
+        If IsValueInRange(InStrB((startIndex * 2) - 1, json, specialChars(iMainLoop)), 1, (lastIndex * 2) - 1) Then
             processBytes = True: Exit For
         End If
     Next iMainLoop
@@ -427,68 +407,66 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte,
     On Error GoTo PropagateError
     
     If processBytes Then
-    
-        ReDim outputBytes(startByte To endByte)
-        'outputIndex is incremented by 2 whenever a value is added so initialize at -2.
-        outputIndex = (-1 * BYTE_OFFSET) + startByte
-        
-        For iMainLoop = startByte To endByte Step BYTE_OFFSET
-        
-            Select Case json(iMainLoop)
-                
+
+        outputIndex = 0
+        For iMainLoop = startIndex To lastIndex Step INDEX_OFFSET
+
+            currentCharacter = Mid$(json, iMainLoop, 1)
+            Select Case currentCharacter
                 Case backslash
                     ' \ encountered.
                     groupedBackslashCount = 0
                     ' Count how many backslashes there are until a non-backslash character is found.
                     Do
                         groupedBackslashCount = groupedBackslashCount + 1
-                        iMainLoop = iMainLoop + BYTE_OFFSET
-                        If iMainLoop > UBound(json) Then Exit Do
-                    Loop Until json(iMainLoop) <> backslash
+                        iMainLoop = iMainLoop + INDEX_OFFSET
+                        If iMainLoop > Len(json) Then Exit Do
+                    Loop Until Mid$(json, iMainLoop, 1) <> backslash
                     
                     ' Determine how many \ to keep with integer division.
                     countOfBackslashToKeep = groupedBackslashCount \ 2
                     
                     If countOfBackslashToKeep > 0 Then
                         ' Write backslashes to output array.
-                        For outputIndex = outputIndex + BYTE_OFFSET To outputIndex + (2 * countOfBackslashToKeep) Step BYTE_OFFSET
-                            outputBytes(outputIndex) = backslash
+                        For outputIndex = outputIndex + INDEX_OFFSET To outputIndex + (2 * countOfBackslashToKeep) Step INDEX_OFFSET
+                            Mid$(json, outputIndex, 1) = backslash
                         Next outputIndex
                         ' For loops will exceed boundary on last loop so reverse by the value of step.
-                        outputIndex = outputIndex - BYTE_OFFSET
+                        outputIndex = outputIndex - INDEX_OFFSET
                     End If
                     
                     ignoreSpecialCharacter = groupedBackslashCount Mod 2 = 0
                     
-                    If iMainLoop <= UBound(json) Then
+                    If iMainLoop <= Len(json) Then
                     
-                        outputIndex = outputIndex + BYTE_OFFSET
+                        outputIndex = outputIndex + INDEX_OFFSET
                         
                         If ignoreSpecialCharacter Then
-                            outputBytes(outputIndex) = json(iMainLoop)
+                            Mid$(json, outputIndex, 1) = Mid$(json, outputIndex, 1)
                         Else
-                            Select Case json(iMainLoop)
-                                Case 98 '\b
-                                    outputBytes(outputIndex) = 8    'backspace
-                                Case 110 '\n
-                                    outputBytes(outputIndex) = 10   'newline
-                                Case 116 '\t
-                                    outputBytes(outputIndex) = 9    'tab
-                                Case quote, 47, 0, 39 '\" or \/ or \0 or \'
-                                    outputBytes(outputIndex) = json(iMainLoop)
-                                Case 114 '\r
-                                    outputBytes(outputIndex) = 13   'carriage return
-                                Case 102 '\f
-                                    outputBytes(outputIndex) = 12   ' Form feed
-                                Case 117 '\u
+                            Select Case Mid$(json, outputIndex, 1)
+                                Case "b" '\b
+                                    Mid$(json, outputIndex, 1) = VBA.vbBack  'backspace
+                                Case "n" '\n
+                                    Mid$(json, outputIndex, 1) = vbNewLine 'newline
+                                Case "t" '\t
+                                    Mid$(json, outputIndex, 1) = vbTab  'tab
+                                Case "0"
+                                Case quote, "'", "/" '\" or \/ or \0 or \'
+                                    Mid$(json, outputIndex, 1) = Mid$(json, outputIndex, 1)
+                                Case "r" '\r
+                                    Mid$(json, outputIndex, 1) = vbCr 'carriage return
+                                Case "f" '\f
+                                    Mid$(json, outputIndex, 1) = vbFormFeed ' Form feed
+                                Case "u" '\u
                                     'Is unicode get 4 bytes after u and calculate.
                                     ' append &h
-                                    For tempCount = 1 To 4
-                                        iMainLoop = iMainLoop + BYTE_OFFSET
-                                        uniCode((tempCount - 1) * 2) = json(iMainLoop)
-                                    Next tempCount
+'                                    For tempCount = 1 To 4
+'                                        iMainLoop = iMainLoop + INDEX_OFFSET
+'                                        uniCode((tempCount - 1) * 2) = json(iMainLoop)
+'                                    Next tempCount
                                     ' To Do properly parse utf characters.
-                                    outputBytes(outputIndex) = Val("&h" & CStr(uniCode))
+                                    Mid$(json, outputIndex, 1) = Val("&h" & CStr(uniCode))
 
                                 Case Else
                                     On Error GoTo 0
@@ -505,44 +483,48 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json() As Byte,
                 Case 10, 13, 9, 8, 12
                     'line feed,carriage return,tab,backspace,form feed
                 Case Else
-                    outputIndex = outputIndex + BYTE_OFFSET
-                    outputBytes(outputIndex) = json(iMainLoop)
-                    If json(iMainLoop) = quote Then unescapedQuoteCount = unescapedQuoteCount + 1
+                    outputIndex = outputIndex + INDEX_OFFSET
+                    Mid$(json, outputIndex, 1) = currentCharacter
+                    If currentCharacter = quote Then unescapedQuoteCount = unescapedQuoteCount + 1
             End Select
             
         Next iMainLoop
       
-        isRangeQuoteEnclosed = (Asc(outputBytes) = quote And outputBytes(outputIndex) = quote)
-        isDelimiterEnclosed = (Asc(outputBytes) = 91 And outputBytes(outputIndex) = 93)
-        If Not isDelimiterEnclosed Then isDelimiterEnclosed = (Asc(outputBytes) = 123 And outputBytes(outputIndex) = 125)
+        isRangeQuoteEnclosed = Left$(json, 1) = quote And Mid$(json, outputIndex, 1) = quote
+        
+        If Not isRangeQuoteEnclosed Then
+            If (Left$(json, 1) = "[" And Mid$(json, outputIndex, 1) = "]") Then
+                isDelimiterEnclosed = True
+            ElseIf (Left$(json, 1) = "{" And Mid$(json, outputIndex, 1) = "}") Then
+                isDelimiterEnclosed = True
+            End If
+        End If
         
         ' If there are 2 unescaped quotes in the byte array and they occur at the end, then byte segement is a string.
-        If unescapedQuoteCount = 2 And isRangeQuoteEnclosed Then
-            'Value is a string.
-            outputBytes = GetArraySubset(outputBytes, LBound(outputBytes) + BYTE_OFFSET, outputIndex - 1)
-            'isRangeQuoteEnclosed = True
+        If (unescapedQuoteCount = 2 And isRangeQuoteEnclosed) Then
+            outputString = Mid$(json, 2, outputIndex - 2)
         ElseIf unescapedQuoteCount >= 1 And Not isDelimiterEnclosed Then
             ' Ensure quality of string value. ie don't allow "apple to be excepted as a string.
-            Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: String value isn't enclosed in quotes: " & vbNewLine & vbNewLine & CStr(GetArraySubset(outputBytes, LBound(outputBytes), outputIndex + (BYTE_OFFSET - 1)))
+            Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: String value isn't enclosed in quotes: " & Left$(json, outputIndex)
         Else
-            ' + 1 to encapsulate character byte.
-            ReDim Preserve outputBytes(LBound(outputBytes) To outputIndex + BYTE_OFFSET - 1)
+            outputString = Left$(json, outputIndex)
         End If
     Else
-        outputBytes = GetArraySubset(json, startByte, endByte)
+        isRangeQuoteEnclosed = False
+        outputString = Mid$(json, startIndex, lastIndex - startIndex + 1)
     End If
 
-    ProcessSpecialCharactersInJsonStringValue = outputBytes
+    ProcessSpecialCharactersInJsonStringValue = outputString
     Exit Function
 PropagateError:
     PropagateError Err, "ProcessSpecialCharactersInJsonStringValue"
 End Function
 
-Private Function TryGetWhitespaceCleanedEnclosingBytes(json() As Byte, ByVal regionStartByte&, ByVal regionEndIndex&, leftByteStart&, rightByteEnd&) As Boolean
+Private Function TryGetWhitespaceCleanedIndexes(json As String, ByVal regionStartIndex&, ByVal regionEndIndex&, cleanedStartIndex&, cleanedEndIndex&) As Boolean
 '========================================================================================================================
 '   Summary:
 '       Searches for non [ space,newlines,line feeds and carriage returns ] from both ends of [json()] if they exist.
-'       leftByteStart and rightByteEnd will be set to the relevant non-white space bytes.
+'       cleanedStartIndex and cleanedEndIndex will be set to the relevant non-white space bytes.
 '============================================================================================================
     Dim cleaningLeft As Boolean, cleaningRight As Boolean, errorLeft As Boolean, errorRight As Boolean
 
@@ -553,36 +535,36 @@ Private Function TryGetWhitespaceCleanedEnclosingBytes(json() As Byte, ByVal reg
         If cleaningLeft Then
             On Error GoTo CatchLeft
             
-            Select Case json(regionStartByte)
-                Case 32, 9, 10, 13
-                    regionStartByte = regionStartByte + BYTE_OFFSET
-                    cleaningLeft = Not regionStartByte > regionEndIndex And regionStartByte <= regionEndIndex
+            Select Case Mid$(json, regionStartIndex, 1)
+                Case " " '32, 9, 10, 13
+                    regionStartIndex = regionStartIndex + INDEX_OFFSET
+                    cleaningLeft = Not regionStartIndex > regionEndIndex And regionStartIndex <= regionEndIndex
                 Case Else
                     cleaningLeft = False
-                    leftByteStart = regionStartByte
+                    cleanedStartIndex = regionStartIndex
             End Select
             
         End If
 Try_Right:
         If cleaningRight Then
             On Error GoTo CatchRight
-            Select Case json(regionEndIndex)
-                Case 32, 9, 10, 13 '12
-                    regionEndIndex = regionEndIndex - BYTE_OFFSET
-                    cleaningRight = Not regionEndIndex < regionStartByte And regionEndIndex >= regionStartByte
+            Select Case Mid$(json, regionEndIndex, 1)
+                Case " " '32, 9, 10, 13 '12
+                    regionEndIndex = regionEndIndex - INDEX_OFFSET
+                    cleaningRight = Not regionEndIndex < regionStartIndex And regionEndIndex >= regionStartIndex
                 Case Else
                     cleaningRight = False
-                    rightByteEnd = regionEndIndex + (BYTE_OFFSET - 1)
+                    cleanedEndIndex = regionEndIndex
             End Select
         End If
 NextLoop:
     Loop While cleaningLeft Or cleaningRight
 
-    If (errorLeft And errorRight) Or (regionStartByte > regionEndIndex) Then
+    If (errorLeft And errorRight) Or (regionStartIndex > regionEndIndex) Then
         'Byte sequence is just whitespace characters
-        TryGetWhitespaceCleanedEnclosingBytes = False
+        TryGetWhitespaceCleanedIndexes = False
     Else
-        TryGetWhitespaceCleanedEnclosingBytes = True
+        TryGetWhitespaceCleanedIndexes = True
     End If
 
     Exit Function
@@ -597,88 +579,69 @@ CatchRight:
     Resume NextLoop
 End Function
 
-Private Function GetArraySubset(query() As Byte, regionStartByte&, regionEndByte&) As Byte()
-
-    Dim outputA() As Byte, iCount&
-    ' Check to make sure section to copy has enough bytes. 2 bytes per character. Ex: 3char string  = 6 bytes
-    If (regionEndByte - regionStartByte) Mod 2 = 0 And BYTE_OFFSET = 2 Then
-        Err.Raise INVALID_JSON_FORMAT_ERROR, "GetArraySubset", "Attempted to create a string from an uneven length byte array."
-    End If
-    
-    ReDim outputA(regionStartByte To regionEndByte)
-    
-    For iCount = regionStartByte To regionEndByte Step BYTE_OFFSET
-        outputA(iCount) = query(iCount)
-    Next iCount
-    GetArraySubset = outputA
-    
-End Function
-
-Private Function LocationOfCharacterNotBetweenTextTokens(ByRef query() As Byte, character$, startIndex&, maxOuterLoopTokenIndex&) As Long
+Private Function BinaryLocationOfCharacterNotWithinQuotes(ByRef query$, character$, startIndex&, ByVal maxIndex&) As Long
 '===============================================================================================================
 ' Summary
 '   Search for the next [character] not contained within quotes.
 ' Remarks:
 '   [character] within escaped quotes will be ignored.
 '===============================================================================================================
-    Dim characterLocationBaseOne&, leftQuoteIndexBaseOne&, loopCount&, _
-    rightQuoteIndexBaseOne&, adjustLeftQuote As Long, isNotEscapedQuote As Boolean, locationOfQuoteBaseOne&, updateCharacterlocation As Boolean
+    Dim characterIndexBinary&, leftQuoteIndexBinary&, loopCount&, rightQuoteIndexBinary&, _
+    adjustLeftQuote As Long, isNotEscapedQuote As Boolean, quoteIndexBinary&, updateCharacterlocation As Boolean
     
-    Const quote$ = """", backSlashCode As Byte = 92
+    Const quote$ = """", backSlashCode$ = "\"
     On Error GoTo Return_Default
-    
-    Dim lboundMinusOne&: lboundMinusOne = LBound(query) - 1
+    'maxIndex
     ' Assign to index base 1.
-     '-lboundMinusOne to get 1 based and then -BYTE_OFFSET as it will be incremented again in the do loop.
+     '-lboundMinusOne to get 1 based and then -INDEX_OFFSET as it will be incremented again in the do loop.
      ' startIndex is already offset off of the token delimiter
-    rightQuoteIndexBaseOne = startIndex - lboundMinusOne - BYTE_OFFSET
+    
+    rightQuoteIndexBinary = ((startIndex * 2) - 1)
+    maxIndex = (maxIndex * 2) - 1
+    
     updateCharacterlocation = True
-
+    Const BINARY_INDEX_OFFSET As Byte = 2
     Do
         If updateCharacterlocation Then
-            characterLocationBaseOne = InStrB(rightQuoteIndexBaseOne + BYTE_OFFSET, query, character)
-            If characterLocationBaseOne = 0 Then Exit Do
+            characterIndexBinary = InStrB(rightQuoteIndexBinary + BINARY_INDEX_OFFSET, query, character)
+            If characterIndexBinary = 0 Then Exit Do
         End If
+        
         loopCount = loopCount + 1
-        leftQuoteIndexBaseOne = rightQuoteIndexBaseOne
+        leftQuoteIndexBinary = rightQuoteIndexBinary
 
         For adjustLeftQuote = -1 To 0
 
-            locationOfQuoteBaseOne = leftQuoteIndexBaseOne
+            quoteIndexBinary = leftQuoteIndexBinary
             Do
-                locationOfQuoteBaseOne = InStrB(locationOfQuoteBaseOne + BYTE_OFFSET, query, quote)
-                If Not locationOfQuoteBaseOne = 0 Then
+                quoteIndexBinary = InStrB(quoteIndexBinary + BINARY_INDEX_OFFSET, query, quote)
+                If Not quoteIndexBinary = 0 Then
                     ' Set to TRUE if previous character in the string isn't a backslash.
-                    isNotEscapedQuote = query(locationOfQuoteBaseOne - BYTE_OFFSET + lboundMinusOne) <> backSlashCode
+                    isNotEscapedQuote = Mid$(query, (quoteIndexBinary \ 2) + 1 - INDEX_OFFSET, 1) <> backSlashCode
                 End If
-            Loop Until isNotEscapedQuote Or locationOfQuoteBaseOne = 0 Or (loopCount = 1 And adjustLeftQuote And characterLocationBaseOne < locationOfQuoteBaseOne And isNotEscapedQuote)
+            Loop Until isNotEscapedQuote Or quoteIndexBinary = 0 Or (loopCount = 1 And adjustLeftQuote And characterIndexBinary < quoteIndexBinary And isNotEscapedQuote)
             
             If adjustLeftQuote Then
-                leftQuoteIndexBaseOne = locationOfQuoteBaseOne
+                leftQuoteIndexBinary = quoteIndexBinary
             Else
-                rightQuoteIndexBaseOne = locationOfQuoteBaseOne
+                rightQuoteIndexBinary = quoteIndexBinary
             End If
             
         Next adjustLeftQuote
         ' Update if sandwhiched between quotes.
-        updateCharacterlocation = (characterLocationBaseOne > leftQuoteIndexBaseOne And characterLocationBaseOne < rightQuoteIndexBaseOne)
+        updateCharacterlocation = (characterIndexBinary > leftQuoteIndexBinary And characterIndexBinary < leftQuoteIndexBinary)
 
-    Loop Until (characterLocationBaseOne < leftQuoteIndexBaseOne And Not updateCharacterlocation) Or characterLocationBaseOne = 0 Or (characterLocationBaseOne > maxOuterLoopTokenIndex - lboundMinusOne) Or leftQuoteIndexBaseOne = 0 Or (loopCount = 1 And characterLocationBaseOne < leftQuoteIndexBaseOne)
+    Loop Until (characterIndexBinary < leftQuoteIndexBinary And Not updateCharacterlocation) Or characterIndexBinary = 0 Or (characterIndexBinary > maxIndex) Or leftQuoteIndexBinary = 0 Or (loopCount = 1 And characterIndexBinary < leftQuoteIndexBinary)
     
-    Select Case characterLocationBaseOne
-        Case Is > maxOuterLoopTokenIndex, 0
-            LocationOfCharacterNotBetweenTextTokens = 0
-        Case Else
-            If Not updateCharacterlocation Then
-                LocationOfCharacterNotBetweenTextTokens = characterLocationBaseOne + lboundMinusOne
-            Else
-                LocationOfCharacterNotBetweenTextTokens = 0
-            End If
-    End Select
+    If characterIndexBinary > maxIndex Or updateCharacterlocation Then
+        BinaryLocationOfCharacterNotWithinQuotes = 0
+    ElseIf Not updateCharacterlocation Then
+        BinaryLocationOfCharacterNotWithinQuotes = characterIndexBinary
+    End If
     
     Exit Function
 Return_Default:
-    LocationOfCharacterNotBetweenTextTokens = 0
+    BinaryLocationOfCharacterNotWithinQuotes = 0
 End Function
 
 Private Sub PropagateError(e As ErrObject, procedureName$, Optional moreDetails$ = vbNullString)
@@ -745,27 +708,15 @@ Private Sub PreProcessData(ByRef jsonBytes() As Byte)
     End If
 End Sub
 
-#If DebugActive Then
-    Public Sub Unit_Test()
-        Dim success As Boolean
-        With Me
-            '.ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,4]}", True
-            '.ParseJsonString HTTPGet("http://worldtimeapi.org/api/timezone/America/New_York", success), True
-            .ParseJsonString HTTPGet("https://publicreporting.cftc.gov/resource/jun7-fc8e.json?$select=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$group=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$limit=5000", success), True
-        End With
-    End Sub
-#End If
+Public Sub Unit_Test()
+    Dim success As Boolean
+    With Me
+        .ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,4]}" ', True
+        '.ParseJsonString HTTPGet("http://worldtimeapi.org/api/timezone/America/New_York", success)', True
+        '.ParseJsonString HTTPGet("https://publicreporting.cftc.gov/resource/jun7-fc8e.json?$select=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$group=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$limit=5000", success)', True
+    End With
+End Sub
 
-'private Function GetByteLocationInRange(json(),charCode as byte,byval startByte as long,endByte as long) as long
-
-    'for startByte =startByte to endbyte step BYTE_OFFSET
-     '   if json(startByte) = charCode then
-      '      GetByteLocationInRange = startByte
-       '     exit function
-       ' end if
-    'next
-    'GetByteLocationInRange = 0
-'end function
 'Public Function DecodeUTF8(ByRef utf8Str As String, _
 '                  Optional ByVal raiseErrors As Boolean = False) As String
 '
