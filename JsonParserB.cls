@@ -6,7 +6,7 @@
 ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ '
 Private Const INVALID_JSON_FORMAT_ERROR& = vbObjectError + 547
 Private Const BYTE_OFFSET As Byte = 2
-#Const DebugActive = False
+#Const DebugActive = True
 
 Option Explicit
 Public Function ParseJsonString(ByRef json$, canEraseString As Boolean) As Object
@@ -42,15 +42,15 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
 '' Reference:
 ''   https://www.json.org/json-en.html
 ''====================================================================================================================================================================================
-    Dim value$, unIdentifiedCount&, isValueJsonObject As Boolean, isValueJsonArray As Boolean, isParentJsonObject As Boolean, valueAvailable As Boolean
+    Dim value$, unIdentifiedCount&, isValueJsonObject As Boolean, isValueJsonArray As Boolean, isContainerJSonObject As Boolean, valueAvailable As Boolean
 
     Dim finalByteCursor&, keyForValue$, valueStartByte&, valueEndByte&, parentObject As Object, _
-    childObject As Object, isValidatedString As Boolean, objectStack As New Collection, cursorByte&, nextPairedCursorByte&
+    childObject As Object, isValidatedString As Boolean, objectStack As New Collection, cursorByte&, forwardEnclosingByte&
 
     Const rightCurly As Byte = 125, leftCurly As Byte = 123, leftSquare As Byte = 91, rightSquare As Byte = 93
     
     Const cursorLimitKey$ = "MoshiM_UC@outlook.com"
-    Const nextDelimitingParentCursorKey$ = "https://github.com/Reshui?tab=repositories", collectionASC As Byte = 67 'C
+    Const nextDelimitingParentCursorKey$ = "https://github.com/Reshui?tab=repositories"
     
     On Error GoTo CATCH_FAILURE
 
@@ -68,18 +68,9 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
     End If
 
     If isValueJsonObject Or isValueJsonArray Then
-        
-        With objectStack
-            If isValueJsonObject Then
-                #If Mac Then
-                    .Add New Dictionary
-                #Else
-                    .Add CreateObject("Scripting.Dictionary")
-                #End If
-            ElseIf isValueJsonArray Then
-                .Add New Collection
-            End If
 
+        CreateObjectOnStack objectStack, createJsonObject:=isValueJsonObject
+        With objectStack
             Set parentObject = .Item(1)
             Set childObject = .Item(1)
         End With
@@ -87,26 +78,25 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
         AddValueToObject parentObject, addingNumber:=True, numberToAdd:=finalByteCursor, keyForValue:=cursorLimitKey
         AddValueToObject parentObject, addingNumber:=True, numberToAdd:=finalByteCursor, keyForValue:=nextDelimitingParentCursorKey
         
-        Do While cursorByte < parentObject.Item(cursorLimitKey)
+        isContainerJSonObject = Not TypeOf childObject Is Collection
 
+        Do While cursorByte < parentObject.Item(cursorLimitKey)
             Do While cursorByte < childObject.Item(cursorLimitKey)
                 ' Finds the next token that encloses a value in conjunction with the current value of cursorByte.
-                nextPairedCursorByte = GetNextTokenDelimiterIndex(json, cursorByte, childObject.Item(cursorLimitKey))
-                ' nextPairedCursorByte = cursorByte will be true in situations like }}}
-                If Not nextPairedCursorByte = cursorByte Then
+                forwardEnclosingByte = GetNextTokenDelimiterIndex(json, cursorByte, childObject.Item(cursorLimitKey))
+                ' forwardEnclosingByte = cursorByte will be true in situations like }}}
+                If Not forwardEnclosingByte = cursorByte Then
                 
-                    isParentJsonObject = Not TypeOf childObject Is Collection
-                
-                    If isParentJsonObject Then
-                        GetValueRangeAndKey json, cursorByte + BYTE_OFFSET, nextPairedCursorByte - BYTE_OFFSET, valueStartByte, valueEndByte, valueAvailable, keyForValue
+                    If isContainerJSonObject Then
+                        GetValueRangeAndKey json, cursorByte + BYTE_OFFSET, forwardEnclosingByte - BYTE_OFFSET, valueStartByte, valueEndByte, valueAvailable, keyForValue
                     End If
         
-                    If Not isParentJsonObject Or (LenB(keyForValue) > 0 And isParentJsonObject) Then
+                    If Not isContainerJSonObject Or (LenB(keyForValue) > 0 And isContainerJSonObject) Then
                                     
-                        If Not isParentJsonObject Then
+                        If Not isContainerJSonObject Then
                             unIdentifiedCount = unIdentifiedCount + 1
                             'Adjust by BYTE_OFFSET to exclude token delimiters.
-                            valueAvailable = TryGetWhitespaceCleanedEnclosingBytes(json, cursorByte + BYTE_OFFSET, nextPairedCursorByte - BYTE_OFFSET, valueStartByte, valueEndByte)
+                            valueAvailable = TryGetWhitespaceCleanedEnclosingBytes(json, cursorByte + BYTE_OFFSET, forwardEnclosingByte - BYTE_OFFSET, valueStartByte, valueEndByte)
                         End If
         
                         'If enclosed in {} or [] then parse a new object or array.
@@ -114,26 +104,19 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
                         isValueJsonArray = valueAvailable And (json(valueStartByte) = leftSquare And json(valueEndByte - (BYTE_OFFSET - 1)) = rightSquare)
     
                         If valueAvailable And (isValueJsonObject Or isValueJsonArray) Then
-                            ' nextPairedCursorByte is boundary for the child object/array
-                            ' one of either ] or ]
+                            ' forwardEnclosingByte is boundary for the child object/array
+                            ' one of either ] or ] or ,
+                            CreateObjectOnStack objectStack, createJsonObject:=isValueJsonObject
                             With objectStack
-                                If isValueJsonObject Then
-                                    #If Mac Then
-                                        .Add New Dictionary
-                                    #Else
-                                        .Add CreateObject("Scripting.Dictionary")
-                                    #End If
-                                Else
-                                    .Add New Collection
-                                End If
-                                
                                 Set childObject = .Item(.count)
                                 Set parentObject = .Item(.count - 1)
                             End With
+
+                            isContainerJSonObject = Not TypeOf childObject Is Collection
                             ' Add key to limit byte range for object.
                             AddValueToObject childObject, addingNumber:=True, numberToAdd:=(valueEndByte - (BYTE_OFFSET - 1)), keyForValue:=cursorLimitKey
                             ' Byte to update cursorLocation to once array or object has been completed.
-                            AddValueToObject childObject, addingNumber:=True, numberToAdd:=nextPairedCursorByte, keyForValue:=nextDelimitingParentCursorKey
+                            AddValueToObject childObject, addingNumber:=True, numberToAdd:=forwardEnclosingByte, keyForValue:=nextDelimitingParentCursorKey
                             ' Create heiarchy by nesting child within parent.
                             AddValueToObject parentObject, newChild:=childObject, keyForValue:=keyForValue
                             ' valueStartByte is one of either { or [
@@ -149,14 +132,16 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
                                 isValidatedString = False
                             End If
                             AddValueToObject childObject, value, isValueString:=isValidatedString, keyForValue:=keyForValue
-                            cursorByte = nextPairedCursorByte
+                            cursorByte = forwardEnclosingByte
                         End If
-                        If isParentJsonObject Then keyForValue = vbNullString
+                        If isContainerJSonObject Then keyForValue = vbNullString
                         value = vbNullString
                     Else
-                        'Some error idk should be handled already.
-                        Err.Raise INVALID_JSON_FORMAT_ERROR, description:="JSON parser faile to parse value and or key."
+                        'Should already be a raised error in GetValueRangeAndKey().
+                        Err.Raise INVALID_JSON_FORMAT_ERROR, description:="JSON parser failed. Key unavailable for object."
                     End If
+                Else
+                    Err.Raise INVALID_JSON_FORMAT_ERROR, description:="JSON parser failed. Current cursor = next cursor."
                 End If
                 
                 With childObject
@@ -171,10 +156,13 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
                             ' Remove the child from the heiarchy as it is no longer needed.
                             If .count > 1 Then .Remove .count
                             
-                            If .count >= 2 Then
-                                Set childObject = .Item(.count)
-                            ElseIf .count = 1 Then
-                                Set childObject = .Item(1)
+                            If .count >= 1 Then
+                                If .count >= 2 Then
+                                    Set childObject = .Item(.count)
+                                ElseIf .count = 1 Then
+                                    Set childObject = .Item(1)
+                                End If
+                                isContainerJSonObject = Not TypeOf childObject Is Collection
                             End If
                         End With
                     End If
@@ -205,6 +193,21 @@ CATCH_FAILURE:
     #End If
 End Function
 
+Private Sub CreateObjectOnStack(stack As Collection, createJsonObject As Boolean)
+
+    If createJsonObject Then
+        #If Mac Then
+            ' https://github.com/VBA-tools/VBA-Dictionary
+            stack.Add New Dictionary
+        #Else
+            stack.Add CreateObject("Scripting.Dictionary")
+        #End If
+    Else
+        stack.Add New Collection
+    End If
+  
+End Sub
+
 Private Function GetNextTokenDelimiterIndex(json() As Byte, cursorByte&, maxCursorByte&) As Long
 '===========================================================================================================
 ' Summary:
@@ -214,7 +217,7 @@ Private Function GetNextTokenDelimiterIndex(json() As Byte, cursorByte&, maxCurs
 '===========================================================================================================
     Dim nextSquareClose&, nextSquareOpen&, nextValidCommaTokenIndexBaseOne&, cursorByteBaseOne&, nextOpen&, nextClose&, minValues(1) As Long
     
-    Dim nextCurlyClose&, nextCurlyOpen&, previousClose&, tokenIndicator$(1), escapeEnclosingArrayOrObject As Boolean, nextCursorByte&
+    Dim nextCurlyClose&, nextCurlyOpen&, previousClose&, tokenIndicator$(1), nextCursorByte&, escapeEnclosingArrayOrObject As Boolean
     'This is used to convert between base one and whatever base json is.
     Dim lboundMinusOne&: lboundMinusOne = LBound(json) - 1
 
@@ -239,11 +242,11 @@ Private Function GetNextTokenDelimiterIndex(json() As Byte, cursorByte&, maxCurs
 
     If nextValidCommaTokenIndexBaseOne > 0 Then
         
-        '===========================================================================================================================
+        '======================================================================================================================================
         ' Determine which of [ or { is greater than cursorByte AND appears first.
-        ' If nextValidCommaTokenIndexBaseOne is greater than that array or object token start,
-        ' then determine if the comma is encapsulated. If it is then find the next comma that isn't encapsulated.
-        '===========================================================================================================================
+        ' If nextValidCommaTokenIndexBaseOne is greater than that byte,
+        ' then determine if the comma is encapsulated. If it is, then find the next comma that isn't encapsulated to find the end of the value.
+        '======================================================================================================================================
         
         If IsValueInRange(nextCurlyOpen, cursorByteBaseOne + BYTE_OFFSET, nextValidCommaTokenIndexBaseOne - BYTE_OFFSET) And (nextCurlyOpen < nextSquareOpen Or nextSquareOpen = 0) Then
             
@@ -276,16 +279,16 @@ Private Function GetNextTokenDelimiterIndex(json() As Byte, cursorByte&, maxCurs
                 nextCurlyClose = InStrB(previousClose + BYTE_OFFSET, json, rightCurly)
                 nextSquareClose = InStrB(previousClose + BYTE_OFFSET, json, rightSquare)
                 
-                nextCursorByte = nextValidCommaTokenIndexBaseOne
+                nextCursorByte = nextValidCommaTokenIndexBaseOne - lboundMinusOne
                 minValues(0) = nextCurlyClose
                 minValues(1) = nextSquareClose
-
+                ' Find min not equal to 0.
                 For nextClose = 0 To 1
-                    If minValues(nextClose) > 0 And (minValues(nextClose) < nextCursorByte Or nextCursorByte = 0) Then nextCursorByte = minValues(nextClose)
+                    If minValues(nextClose) > 0 And (minValues(nextClose) < nextCursorByte Or nextCursorByte <= 0) Then nextCursorByte = minValues(nextClose)
                 Next nextClose
                 If nextCursorByte > 0 Then nextCursorByte = nextCursorByte + lboundMinusOne
             Else
-                nextCursorByte = 0
+                nextCursorByte = maxCursorByte
             End If
             'cursorByteBaseOne = previousClose
         End If
@@ -322,8 +325,7 @@ End Function
 
 Private Sub GetValueRangeAndKey(json() As Byte, minimumCursorByte&, maxCursorByte&, valueStartByte&, valueEndByte&, valueAvailable As Boolean, keyForObject$)
 
-    Dim keyValueDelimiterByte&, isKeyWithinQuotes As Boolean, keyStartByte&, KeyEndByte&, _
-    includeForwardDelimiterInValue As Boolean, lowerMinusOne&
+    Dim keyValueDelimiterByte&, isKeyWithinQuotes As Boolean, keyStartByte&, KeyEndByte& ', includeForwardDelimiterInValue As Boolean, lowerMinusOne&
     
     Const quote& = 34, colon$ = ":"
     On Error GoTo PropagateError
@@ -377,32 +379,28 @@ PropagateError:
 End Sub
 
 Private Sub AddValueToObject(containerObject As Object, Optional value$, Optional isValueString As Boolean, Optional newChild As Object, Optional keyForValue$, Optional addingNumber As Boolean, Optional numberToAdd As Long)
-        
-    Const collectionASC As Byte = 67 'C
     
-    Dim isParentJsonObject As Boolean
-    
-    isParentJsonObject = Not TypeOf containerObject Is Collection
+    Dim isContainerJSonObject As Boolean: isContainerJSonObject = Not TypeOf containerObject Is Collection
 
     On Error GoTo PropagateError
     
     If newChild Is Nothing Then
         If addingNumber Then
             ' This is just used for tracking byte locations.
-            If isParentJsonObject Then
+            If isContainerJSonObject Then
                 containerObject.Add keyForValue, numberToAdd
             Else
                 containerObject.Add numberToAdd, keyForValue
             End If
         ElseIf isValueString Then
             ' String value.
-            If isParentJsonObject Then
+            If isContainerJSonObject Then
                 containerObject.Add keyForValue, value
             Else
                 containerObject.Add value
             End If
         ElseIf IsNumeric(value) Then
-            If isParentJsonObject Then
+            If isContainerJSonObject Then
                 containerObject.Add keyForValue, IIf(InStrB(1, value, ".") > 0, CDbl(value), CLng(value))
             Else
                 containerObject.Add IIf(InStrB(1, value, ".") > 0, CDbl(value), CLng(value))
@@ -410,13 +408,13 @@ Private Sub AddValueToObject(containerObject As Object, Optional value$, Optiona
         Else
             Select Case value
                 Case "true", "false"
-                    If isParentJsonObject Then
+                    If isContainerJSonObject Then
                         containerObject.Add keyForValue, CBool(value)
                     Else
                         containerObject.Add CBool(value)
                     End If
                 Case "null", vbNullString
-                    If isParentJsonObject Then
+                    If isContainerJSonObject Then
                         containerObject.Add keyForValue, Null
                     Else
                         containerObject.Add Null
@@ -426,7 +424,7 @@ Private Sub AddValueToObject(containerObject As Object, Optional value$, Optiona
             End Select
         End If
     Else
-        If isParentJsonObject Then
+        If isContainerJSonObject Then
             containerObject.Add keyForValue, newChild
         Else
             containerObject.Add newChild
@@ -801,9 +799,9 @@ Public Sub Unit_Test()
     Dim success As Boolean, ss$
     
     With Me
-        .ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,4]}", True
+        '.ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,4]}", True
         '.ParseJsonString HTTPGet("http://worldtimeapi.org/api/timezone/America/New_York", success), True
-        '.ParseJsonString HTTPGet("https://publicreporting.cftc.gov/resource/jun7-fc8e.json?$select=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$group=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$limit=5000", success), True
+        .ParseJsonString HTTPGet("https://publicreporting.cftc.gov/resource/jun7-fc8e.json?$select=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$group=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$limit=5000", success), True
     End With
 
 End Sub
