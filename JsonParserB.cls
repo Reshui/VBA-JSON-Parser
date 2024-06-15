@@ -6,7 +6,7 @@
 ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ '
 Private Const INVALID_JSON_FORMAT_ERROR& = vbObjectError + 547
 Private Const BYTE_OFFSET As Byte = 2
-#Const DebugActive = False
+#Const DebugActive = false
 
 Option Explicit
 Public Function ParseJsonString(ByRef json$, canEraseString As Boolean) As Object
@@ -27,12 +27,9 @@ End Function
 
 Private Function ParseJSON(ByRef json() As Byte) As Object
 ''====================================================================================================================================================================================
-'' Summary: Parse JSON byte data.
+'' Summary: Non-Recursive JSON byte parser.
 '' Inputs:
-''   json: String to parse.
-''   cursorByte: Index to start parsing from. Initialize at 1 or ensure it is a json token.
-''   recursionDepth: Used for generating error messages.
-''   arrayOrObjectName: Used for generating error messages.
+''   json: Byte array to parse.
 '' Reference:
 ''   https://www.json.org/json-en.html
 ''====================================================================================================================================================================================
@@ -134,14 +131,16 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
             End If
             
             With jsonContainer
-                ' If cursor byte has exceeded its set range; remove it from the stack and update child and parent.
+                ' If cursor byte has exceeded its set range; remove it from the stack.
                 If cursorByte >= .Item(cursorLimitKey) Then
-                    cursorByte = .Item(nextDelimitingParentCursorKey)
-                    .Remove nextDelimitingParentCursorKey
-                    .Remove cursorLimitKey
+                    cursorByte = .Item(nextDelimitingParentCursorKey)                
                     With objectStack
-                         If .count > 1 Then
-                            .Remove .count
+                        If .count > 1 Then 
+                            with jsonContainer
+                                .Remove cursorLimitKey
+                                .Remove nextDelimitingParentCursorKey
+                            end with                        
+                            .Remove .count 
                             Set jsonContainer = .Item(.count)
                             isContainerJsonObject = Not TypeOf jsonContainer Is Collection
                         End If
@@ -151,13 +150,8 @@ Private Function ParseJSON(ByRef json() As Byte) As Object
         Loop
         
         With jsonContainer
-            On Error Resume Next
             .Remove cursorLimitKey
             .Remove nextDelimitingParentCursorKey
-            With Err
-                If .number > 0 Then .Clear
-            End With
-            On Error GoTo CATCH_FAILURE
         End With
         Set ParseJSON = jsonContainer
     Else
