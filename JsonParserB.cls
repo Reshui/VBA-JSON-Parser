@@ -6,7 +6,7 @@
 ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ '
 Private Const INVALID_JSON_FORMAT_ERROR& = vbObjectError + 547
 Private Const BYTE_OFFSET As Byte = 2
-#Const DebugActive = True
+#Const DebugActive = false
 
 Option Explicit
 Public Function ParseJsonString(ByRef json$, canEraseString As Boolean) As Object
