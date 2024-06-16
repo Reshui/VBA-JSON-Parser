@@ -16,7 +16,6 @@ QuoteCharacter$ = """", BackslashCharacter$ = "\", SpaceCharacter$ = " ", ColonC
 
 #Const DebugActive = False
 Public Function ParseJsonString(ByRef json$) As Object
-    
     Set ParseJsonString = ParseJSON(json)
 End Function
 
@@ -38,8 +37,8 @@ Private Function ParseJSON(ByRef json$) As Object
     Dim jsonLength&, keyForValue$, valueStartIndex&, valueEndIndex&, jsonContainer As Object, _
     isValidatedString As Boolean, heirarchyStack As New Collection, cursorLocation&, nextCursorLocation&, isKeyAvailable As Boolean
     
-    Const cursorLimitKey$ = "MoshiM_UC@outlook.com"
-    Const nextDelimitingParentCursorKey$ = "https://github.com/Reshui?tab=repositories"
+    Const cursorLimit$ = "MoshiM_UC@outlook.com"
+    Const cursorLocationAfterCompletion$ = "https://github.com/Reshui?tab=repositories"
     
     On Error GoTo CATCH_FAILURE
     ' This is basically a trim that also works on vbLf,vbTab,vbCr and doesn't return a new string just start and end locations.
@@ -56,14 +55,14 @@ Private Function ParseJSON(ByRef json$) As Object
         CreateObjectOnStack heirarchyStack, createJsonObject:=isValueJsonObject
         Set jsonContainer = heirarchyStack(1)
         
-        AddValueToObject jsonContainer, isValueJsonObject, addingNumber:=True, numberToAdd:=jsonLength, keyForValue:=cursorLimitKey
-        AddValueToObject jsonContainer, isValueJsonObject, addingNumber:=True, numberToAdd:=jsonLength, keyForValue:=nextDelimitingParentCursorKey
+        AddValueToObject jsonContainer, isValueJsonObject, addingNumber:=True, numberToAdd:=jsonLength, keyForValue:=cursorLimit
+        AddValueToObject jsonContainer, isValueJsonObject, addingNumber:=True, numberToAdd:=jsonLength, keyForValue:=cursorLocationAfterCompletion
         
         isContainerJsonObject = Not TypeOf jsonContainer Is Collection
         
-        Do While cursorLocation < jsonContainer.Item(cursorLimitKey)
+        Do While cursorLocation < jsonContainer.Item(cursorLimit)
             ' Finds the next token that encloses a value in conjunction with the current value of cursorLocation.
-            nextCursorLocation = GetNextEnclosingDelimiterLocation(json, cursorLocation, jsonContainer.Item(cursorLimitKey))
+            nextCursorLocation = GetNextEnclosingDelimiterLocation(json, cursorLocation, jsonContainer.Item(cursorLimit))
 
             If nextCursorLocation > cursorLocation Then
             
@@ -93,16 +92,16 @@ Private Function ParseJSON(ByRef json$) As Object
 
                         isContainerJsonObject = Not TypeOf jsonContainer Is Collection
                         ' Add key to limit byte range for object.
-                        AddValueToObject jsonContainer, isContainerJsonObject, addingNumber:=True, numberToAdd:=valueEndIndex, keyForValue:=cursorLimitKey
+                        AddValueToObject jsonContainer, isContainerJsonObject, addingNumber:=True, numberToAdd:=valueEndIndex, keyForValue:=cursorLimit
                         ' Byte to update cursorLocation to once array or object has been completed.
-                        AddValueToObject jsonContainer, isContainerJsonObject, addingNumber:=True, numberToAdd:=nextCursorLocation, keyForValue:=nextDelimitingParentCursorKey
+                        AddValueToObject jsonContainer, isContainerJsonObject, addingNumber:=True, numberToAdd:=nextCursorLocation, keyForValue:=cursorLocationAfterCompletion
                         ' The token byte used to indicate the start of an object or array.
                         cursorLocation = valueStartIndex
                     Else
                         If valueAvailable Then
                             ' This function will remove a pair of unescaped quotes at the beginning and end of string values.
                             ' Throws an error if any other unescaped quotes.
-                            value = ProcessSpecialCharactersInJsonStringValue(json, valueStartIndex, valueEndIndex, isValidatedString)
+                            value = ProcessCharactersInRange(json, valueStartIndex, valueEndIndex, isValidatedString)
                         Else
                             ' Code will convert this to null in AddValueToObject() below.
                             value = vbNullString
@@ -126,15 +125,15 @@ Private Function ParseJSON(ByRef json$) As Object
             End If
             
             With jsonContainer
-                ' If cursorLocation byte has exceeded its set range; remove it from the stack.
-                If cursorLocation >= .Item(cursorLimitKey) Then
-                    cursorLocation = .Item(nextDelimitingParentCursorKey)
+                ' If cursorLocation has exceeded jsonContainer Cursor Limit; remove it from the stack.
+                If cursorLocation >= .Item(cursorLimit) Then
+                    cursorLocation = .Item(cursorLocationAfterCompletion)
                     With heirarchyStack
                         ' Only update if not Parent of all nodes.
                         If .count > 1 Then
                             With jsonContainer
-                                .Remove cursorLimitKey
-                                .Remove nextDelimitingParentCursorKey
+                                .Remove cursorLimit
+                                .Remove cursorLocationAfterCompletion
                             End With
                             .Remove .count
                             Set jsonContainer = .Item(.count)
@@ -146,8 +145,8 @@ Private Function ParseJSON(ByRef json$) As Object
         Loop
         
         With jsonContainer
-            .Remove cursorLimitKey
-            .Remove nextDelimitingParentCursorKey
+            .Remove cursorLimit
+            .Remove cursorLocationAfterCompletion
         End With
         Set ParseJSON = jsonContainer
     Else
@@ -296,7 +295,7 @@ Private Sub GetValueRangeAndKey(ByRef json$, ByRef minimumIndex&, ByRef maxIndex
                 
                 If (keyEndLocation < valueStartLocation) Then
                     ' Will raise error if invalid key.
-                    keyForValue = ProcessSpecialCharactersInJsonStringValue(json, keyStartLocation, keyEndLocation, isKeyAvailalble)
+                    keyForValue = ProcessCharactersInRange(json, keyStartLocation, keyEndLocation, isKeyAvailalble)
                     If Not isKeyAvailalble Then Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key must be enclosed in quotes." & Mid$(json, keyStartLocation, keyEndLocation - keyStartLocation + 1)
                 Else
                     Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key overlaps with value." & Mid$(json, keyStartLocation, keyEndLocation - valueEndLocation + 1)
@@ -305,7 +304,7 @@ Private Sub GetValueRangeAndKey(ByRef json$, ByRef minimumIndex&, ByRef maxIndex
                 Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key-Value delimiter not found." & Mid$(json, keyStartLocation, keyStartLocation - valueEndLocation + 1)
             End If
         Else
-            Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key doesn't start with a quote: " & Mid$(json, keyStartLocation, keyStartLocation - valueEndLocation + 1)
+            Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key doesn't start with a quote or couldn't find valid enclosing token: " & Mid$(json, keyStartLocation, keyStartLocation - valueEndLocation + 1)
         End If
     Else
         Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Expected Key-Value pair not found."
@@ -373,7 +372,7 @@ PropagateError:
     PropagateError Err, "AddValueToObject"
 End Sub
 
-Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef startIndex&, ByRef lastIndex&, Optional ByRef isRangeQuoteEnclosed As Boolean) As String
+Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef lastIndex&, Optional ByRef isRangeQuoteEnclosed As Boolean) As String
 '========================================================================================================================================
 'Summary: Converts special characters that are lead by a \ and raises error where appropriate.
 '   For example unescaped quotes that don't enclose a value or no special character following a \.
@@ -406,12 +405,12 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
         regionStart = startIndex: characterIndex = startIndex - INDEX_OFFSET: outputIndex = 0
         
         'Use InstrB to determine the forward index of any special characters.
-        Do While characterIndex < lastIndex                        
+        Do While characterIndex < lastIndex
             ' Convert to binary.
             characterIndex = (characterIndex * BINARY_OFFSET) - 1 + BINARY_OFFSET
             ' Determine min special char > 0
             For iLoop = LBound(specialChars) To UBound(specialChars)
-                if minValues(iLoop) < characterIndex then minValues(iLoop) = InStrB(characterIndex, json, specialChars(iLoop))
+                If minValues(iLoop) < characterIndex Then minValues(iLoop) = InStrB(characterIndex, json, specialChars(iLoop))
                 If IsValueInRange(minValues(iLoop), 1, characterIndex - BINARY_OFFSET) Or iLoop = LBound(specialChars) Then characterIndex = minValues(iLoop)
             Next iLoop
             ' Convert from binary with integer division.
@@ -426,10 +425,10 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
             Select Case currentCharacter
 
                 Case QuoteCharacter
-                    unescapedQuoteCount = unescapedQuoteCount + 1:writeToBuffer = True: nonInclusiveRegionEnd = characterIndex + 1
+                    unescapedQuoteCount = unescapedQuoteCount + 1: writeToBuffer = True: nonInclusiveRegionEnd = characterIndex + 1
                     newRegionStart = characterIndex + INDEX_OFFSET
                 Case BackslashCharacter
-                    writeToBuffer = True: nonInclusiveRegionEnd = characterIndex:newOutputIndex = outputIndex: groupedBackslashCount = 0
+                    writeToBuffer = True: nonInclusiveRegionEnd = characterIndex: newOutputIndex = outputIndex: groupedBackslashCount = 0
                     ' Count how many backslashes there are until a non-backslash character is found.
                     Do
                         groupedBackslashCount = groupedBackslashCount + 1
@@ -453,7 +452,7 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
                     
                     If characterIndex <= lastIndex Then
 
-                        currentCharacter = Mid$(json, characterIndex, 1):newOutputIndex = newOutputIndex + INDEX_OFFSET
+                        currentCharacter = Mid$(json, characterIndex, 1): newOutputIndex = newOutputIndex + INDEX_OFFSET
                         
                         If ignoreSpecialCharacter Then
                             Mid$(json, newOutputIndex, 1) = currentCharacter
@@ -476,7 +475,7 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
                                     Mid$(json, newOutputIndex, 1) = vbFormFeed ' Form feed
                                 Case "u" '\u
                                     ' See: https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/chr-function
-                                    Mid$(json, newOutputIndex, 1) = ChrW(Val("&h" & Mid$(json, characterIndex + 1, 4)))
+                                    Mid$(json, newOutputIndex, 1) = ChrW(val("&h" & Mid$(json, characterIndex + 1, 4)))
                                     characterIndex = characterIndex + 4
                                 Case Else
                                     Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Unescaped backslash with no special character."
@@ -485,10 +484,10 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
                     End If
                     newRegionStart = characterIndex + INDEX_OFFSET
                 Case vbLf, vbCr, vbTab, vbFormFeed
-                    writeToBuffer = True:nonInclusiveRegionEnd = characterIndex:newRegionStart = characterIndex + INDEX_OFFSET
+                    writeToBuffer = True: nonInclusiveRegionEnd = characterIndex: newRegionStart = characterIndex + INDEX_OFFSET
                 Case Else
                     'For the last index
-                    writeToBuffer = True:nonInclusiveRegionEnd = characterIndex + 1
+                    writeToBuffer = True: nonInclusiveRegionEnd = characterIndex + 1
             End Select
             
             If writeToBuffer Or characterIndex = lastIndex Then
@@ -500,13 +499,12 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
                 outputIndex = outputIndex + (nonInclusiveRegionEnd - regionStart) - 1
                 ' If backslash case was used.
                 If newOutputIndex > 0 Then outputIndex = newOutputIndex: newOutputIndex = 0
-                regionStart = newRegionStart
-                writeToBuffer = False
-            End If            
+                regionStart = newRegionStart: writeToBuffer = False
+            End If
         Loop
         ' Code has been using [json] as a buffer beginning at index 1.
         isRangeQuoteEnclosed = Left$(json, 1) = QuoteCharacter And Mid$(json, outputIndex, 1) = QuoteCharacter
-        ' 
+        '
         If Not isRangeQuoteEnclosed Then
             If (Left$(json, 1) = LeftSquare And Mid$(json, outputIndex, 1) = RightSquare) Then
                 isDelimiterEnclosed = True
@@ -514,7 +512,6 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
                 isDelimiterEnclosed = True
             End If
         End If
-
         ' If there are 2 unescaped quotes in the value region and they occur at the ends, then the segement is a string.
         If (unescapedQuoteCount = 2 And isRangeQuoteEnclosed) Then
             outputString = Mid$(json, 2, outputIndex - 2)
@@ -524,21 +521,20 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
         Else
             outputString = Left$(json, outputIndex)
         End If
-        
     Else
         isRangeQuoteEnclosed = False
         outputString = Mid$(json, startIndex, lastIndex - startIndex + 1)
     End If
 
-    ProcessSpecialCharactersInJsonStringValue = outputString
+    ProcessCharactersInRange = outputString
     Exit Function
 PropagateError:
-    PropagateError Err, "ProcessSpecialCharactersInJsonStringValue"
+    PropagateError Err, "ProcessCharactersInRange"
 End Function
 Private Function TryGetWhitespaceCleanedIndexes(json As String, ByVal regionStartIndex&, ByVal regionEndIndex&, cleanedStartIndex&, cleanedEndIndex&) As Boolean
 '========================================================================================================================
 '   Summary:
-'       Searches for non [ space,newlines,line feeds and carriage returns ] from both ends of [json()] if they exist.
+'       Searches for non space,newlines,line feeds and carriage returns from both ends of [json] if they exist.
 '       cleanedStartIndex and cleanedEndIndex will be set to the relevant non-white space bytes.
 '============================================================================================================
     Dim cleaningLeft As Boolean, cleaningRight As Boolean, errorLeft As Boolean, errorRight As Boolean
@@ -594,7 +590,7 @@ CatchRight:
     Resume NextLoop
 End Function
 
-Private Function BinaryCharacterIndexNotWithinQuotes(ByRef query$, ByRef character$, ByRef startIndex&, ByRef maxIndex&) As Long
+Private Function BinaryCharacterIndexNotWithinQuotes(ByRef json$, ByRef character$, ByRef startIndex&, ByRef maxIndex&) As Long
 '===============================================================================================================
 ' Summary
 '   Search for the next [character] not contained within quotes.
@@ -614,7 +610,7 @@ Private Function BinaryCharacterIndexNotWithinQuotes(ByRef query$, ByRef charact
     
     Do
         If updateCharacterlocation Then
-            characterIndexBinary = InStrB(rightQuoteIndexBinary + BINARY_OFFSET, query, character)
+            characterIndexBinary = InStrB(rightQuoteIndexBinary + BINARY_OFFSET, json, character)
             If characterIndexBinary = 0 Then Exit Do
         End If
         
@@ -626,10 +622,10 @@ Private Function BinaryCharacterIndexNotWithinQuotes(ByRef query$, ByRef charact
 
             quoteIndexBinary = leftQuoteIndexBinary
             Do
-                quoteIndexBinary = InStrB(quoteIndexBinary + BINARY_OFFSET, query, QuoteCharacter)
+                quoteIndexBinary = InStrB(quoteIndexBinary + BINARY_OFFSET, json, QuoteCharacter)
                 If Not quoteIndexBinary = 0 Then
                     ' Set to TRUE if previous character in the string isn't a backslash.
-                    isNotEscapedQuote = Mid$(query, ((quoteIndexBinary \ BINARY_OFFSET) + 1) - INDEX_OFFSET, 1) <> BackslashCharacter
+                    isNotEscapedQuote = Mid$(json, ((quoteIndexBinary \ BINARY_OFFSET) + 1) - INDEX_OFFSET, 1) <> BackslashCharacter
                 End If
             Loop Until isNotEscapedQuote Or quoteIndexBinary = 0 Or (loopCount = 1 And adjustLeftQuote And characterIndexBinary < quoteIndexBinary And isNotEscapedQuote)
             
@@ -683,10 +679,10 @@ Private Sub AddParentToErrSource(e As ErrObject, parentName$)
 End Sub
 Public Sub Unit_Test()
     Dim success As Boolean ', T As New TimedTask
-        '.ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,4]}" ', True
+        Me.ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,{""apple"":22,""berry"":45}]}" ', True
         '.ParseJsonString HTTPGet("http://worldtimeapi.org/api/timezone/America/New_York", success) ', True
     'With T.StartSubTask("CFTC")
-        Me.ParseJsonString HTTPGet("https://publicreporting.cftc.gov/resource/jun7-fc8e.json?$select=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$group=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$limit=5000", success) ', True
+        'Me.ParseJsonString HTTPGet("https://publicreporting.cftc.gov/resource/jun7-fc8e.json?$select=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$group=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$limit=5000", success) ', True
         '.EndTask
     'End With
     'T.DPrint
