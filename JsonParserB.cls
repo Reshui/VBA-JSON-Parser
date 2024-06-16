@@ -12,10 +12,10 @@ Option Explicit
 Private Const INVALID_JSON_FORMAT_ERROR& = vbObjectError + 547
 Private Const INDEX_OFFSET As Byte = 1
 Private Const RightCurly$ = "}", LeftCurly$ = "{", LeftSquare$ = "[", RightSquare$ = "]", _
-QuoteCharacter$ = """", BackslashCharacter$ = "\", SpaceCharacter$ = " ", ColonCharacter$ = ":",Comma$ = ",", BINARY_OFFSET As Byte = 2
+QuoteCharacter$ = """", BackslashCharacter$ = "\", SpaceCharacter$ = " ", ColonCharacter$ = ":", Comma$ = ",", BINARY_OFFSET As Byte = 2
 
 
-#Const DebugActive = False
+#Const DebugActive = True
 Public Function ParseJsonString(ByRef json$) As Object
     
     Set ParseJsonString = ParseJSON(json)
@@ -44,17 +44,15 @@ Private Function ParseJSON(ByRef json$) As Object
     
     On Error GoTo CATCH_FAILURE
 
-    if TryGetWhitespaceCleanedIndexes(json, 1, len(json), cursorLocation, jsonLength) then
-        If Mid$(json, cursorLocation,1) = LeftCurly And Mid$(json, jsonLength,1) = RightCurly Then
+    If TryGetWhitespaceCleanedIndexes(json, 1, Len(json), cursorLocation, jsonLength) Then
+        If Mid$(json, cursorLocation, 1) = LeftCurly And Mid$(json, jsonLength, 1) = RightCurly Then
             isValueJsonObject = True
-        ElseIf Mid$(json, cursorLocation,1) = LeftSquare And Mid$(json,jsonLength, 1) = RightSquare Then
+        ElseIf Mid$(json, cursorLocation, 1) = LeftSquare And Mid$(json, jsonLength, 1) = RightSquare Then
             isValueJsonArray = True
         End If
-    end if
+    End If
     
     If isValueJsonObject Or isValueJsonArray Then
-
-        cursorLocation = 1: jsonLength = Len(json)
         
         CreateObjectOnStack heirarchyStack, createJsonObject:=isValueJsonObject
         Set jsonContainer = heirarchyStack(1)
@@ -203,7 +201,7 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxIn
     nextCurlyCloseBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, RightCurly)
     nextSquareOpenBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, LeftSquare)
     nextSquareCloseBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, RightSquare)
-    nextValidCommaTokenIndexBinary = BinaryCharacterIndexNotWithinQuotes(json, Comma, cursorLocation + BINARY_OFFSET, maxIndex)
+    nextValidCommaTokenIndexBinary = BinaryCharacterIndexNotWithinQuotes(json, Comma, cursorLocation + INDEX_OFFSET, maxIndex)
 
     If nextValidCommaTokenIndexBinary > 0 Then nextEnclosingTokenIndex = (nextValidCommaTokenIndexBinary \ 2) + 1
 
@@ -471,7 +469,7 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
                     ElseIf Not ignoreSpecialCharacter Then
                         Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Unescaped backslash at end of string: '\'"
                     End If
-                case vbLf,vbTab,vbCr
+                Case vbLf, vbTab, vbCr
                 'Case "/"
                     'Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Unescaped solidius: '/'"
                 Case Else
@@ -658,11 +656,14 @@ Private Sub AddParentToErrSource(e As ErrObject, parentName$)
         End If
     End With
 End Sub
-'Public Sub Unit_Test()
-'    Dim success As Boolean
-'    With Me
-'        '.ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,4]}" ', True
-'        '.ParseJsonString HTTPGet("http://worldtimeapi.org/api/timezone/America/New_York", success) ', True
-'        '.ParseJsonString HTTPGet("https://publicreporting.cftc.gov/resource/jun7-fc8e.json?$select=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$group=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$limit=5000", success) ', True
-'    End With
-'End Sub
+Public Sub Unit_Test()
+    Dim success As Boolean ', T As New TimedTask
+        '.ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,4]}" ', True
+        '.ParseJsonString HTTPGet("http://worldtimeapi.org/api/timezone/America/New_York", success) ', True
+    'With T.StartSubTask("CFTC")
+        Me.ParseJsonString HTTPGet("https://publicreporting.cftc.gov/resource/jun7-fc8e.json?$select=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$group=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$limit=5000", success) ', True
+        '.EndTask
+    'End With
+    'T.DPrint
+End Sub
+
