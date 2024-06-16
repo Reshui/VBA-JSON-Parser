@@ -122,7 +122,7 @@ Private Function ParseJSON(ByRef json$) As Object
                     Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="JSON parser failed. Key unavailable for object."
                 End If
             Else
-                Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="JSON parser failed. Current cursorLocation = next cursorLocation."
+                Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="JSON parser failed. Current cursorLocation >= next cursorLocation."
             End If
             
             With jsonContainer
@@ -189,8 +189,8 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxIn
 
     On Error GoTo Propagate
     ' Convert to binary location.
-    currentIndexBinary = (cursorLocation * 2) - 1
-    maxIndexBinary = (maxIndex * 2) - 1
+    currentIndexBinary = (cursorLocation * BINARY_OFFSET) - 1
+    maxIndexBinary = (maxIndex * BINARY_OFFSET) - 1
     ' Start searching from the next byte.
     nextCurlyOpenBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, LeftCurly)
     nextCurlyCloseBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, RightCurly)
@@ -198,7 +198,7 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxIn
     nextSquareCloseBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, RightSquare)
     nextValidCommaTokenIndexBinary = BinaryCharacterIndexNotWithinQuotes(json, Comma, cursorLocation + INDEX_OFFSET, maxIndex)
 
-    If nextValidCommaTokenIndexBinary > 0 Then nextEnclosingTokenIndex = (nextValidCommaTokenIndexBinary \ 2) + 1
+    If nextValidCommaTokenIndexBinary > 0 Then nextEnclosingTokenIndex = (nextValidCommaTokenIndexBinary \ BINARY_OFFSET) + 1
 
     If nextValidCommaTokenIndexBinary > 0 Then
         '======================================================================================================================================
@@ -232,14 +232,14 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxIn
 
             If previousCloseBinary < maxIndexBinary Then
                 ' Find min not equal to 0 of the following.
-                nextEnclosingTokenIndex = BinaryCharacterIndexNotWithinQuotes(json, Comma, (previousCloseBinary \ 2) + 1, maxIndex)
+                nextEnclosingTokenIndex = BinaryCharacterIndexNotWithinQuotes(json, Comma, (previousCloseBinary \ BINARY_OFFSET) + 1, maxIndex)
                 minValues(0) = InStrB(previousCloseBinary + BINARY_OFFSET, json, RightCurly)
                 minValues(1) = InStrB(previousCloseBinary + BINARY_OFFSET, json, RightSquare)
                 
                 For nextCloseBinary = 0 To 1
                     If IsValueInRange(minValues(nextCloseBinary), 1, nextEnclosingTokenIndex) Or nextEnclosingTokenIndex <= 0 Then nextEnclosingTokenIndex = minValues(nextCloseBinary)
                 Next nextCloseBinary
-                If nextEnclosingTokenIndex > 0 Then nextEnclosingTokenIndex = (nextEnclosingTokenIndex \ 2) + 1
+                If nextEnclosingTokenIndex > 0 Then nextEnclosingTokenIndex = (nextEnclosingTokenIndex \ BINARY_OFFSET) + 1
             Else
                 nextEnclosingTokenIndex = maxIndex
             End If
@@ -286,7 +286,7 @@ Private Sub GetValueRangeAndKey(ByRef json$, ByRef minimumIndex&, ByRef maxIndex
         ' Does key start with a qukote?
         If Mid$(json, keyStartLocation, 1) = QuoteCharacter Then
 
-            keyValueDelimiterIndex = (BinaryCharacterIndexNotWithinQuotes(json, ColonCharacter, keyStartLocation, valueEndLocation) \ 2) + 1
+            keyValueDelimiterIndex = (BinaryCharacterIndexNotWithinQuotes(json, ColonCharacter, keyStartLocation, valueEndLocation) \ BINARY_OFFSET) + 1
             ' Is there a ColonCharacter outside of quotes?
             If keyValueDelimiterIndex > 0 Then
                 ' Find boundaries of key using location of key-value delimiter.
@@ -381,8 +381,8 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
 ' Front end of [json] will be used as a buffer.
 ' \n: new line; \t: tab; \b: backspace; \r: carriage return; \f: form feed; \{/0"}: same character if not escaped; \\: escapes BackslashCharacter
 '========================================================================================================================================
-    Dim outputString$, iMainLoop&, outputIndex&, ignoreSpecialCharacter As Boolean, isDelimiterEnclosed As Boolean, currentCharacter$, _
-    groupedBackslashCount&, countOfBackslashToKeep&, processString As Boolean, specialChars(6) As String, unescapedQuoteCount As Long, partialValueAvailable As Boolean, partialStart&
+    Dim outputString$, iLoop&, outputIndex&, ignoreSpecialCharacter As Boolean, isDelimiterEnclosed As Boolean, currentCharacter$, minValues&(6), _
+    groupedBackslashCount&, countOfBackslashToKeep&, processString As Boolean, specialChars(6) As String, unescapedQuoteCount As Long
 
     specialChars(0) = QuoteCharacter: specialChars(1) = BackslashCharacter
     specialChars(2) = vbCr: specialChars(3) = vbTab
@@ -390,110 +390,123 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
     specialChars(6) = VBA.vbFormFeed
 
     ' Determine if there are any special characters in the range.
-    For iMainLoop = LBound(specialChars) To UBound(specialChars) Step INDEX_OFFSET
+    For iLoop = LBound(specialChars) To UBound(specialChars)
         ' If within bounds set processString equal to true and exit the loop.
-        If IsValueInRange(InStrB((startIndex * 2) - 1, json, specialChars(iMainLoop)), 1, (lastIndex * 2) - 1) Then
+        If IsValueInRange(InStrB((startIndex * BINARY_OFFSET) - 1, json, specialChars(iLoop)), 1, (lastIndex * BINARY_OFFSET) - 1) Then
             processString = True: Exit For
         End If
-    Next iMainLoop
+    Next iLoop
 
     On Error GoTo PropagateError
     
     If processString Then
 
-        outputIndex = 0
-        For iMainLoop = startIndex To lastIndex Step INDEX_OFFSET
+        Dim characterIndex&, regionStart&, writeToBuffer As Boolean, nonInclusiveRegionEnd&, newOutputIndex&, newRegionStart&
 
-            currentCharacter = Mid$(json, iMainLoop, 1)
+        regionStart = startIndex: characterIndex = startIndex - INDEX_OFFSET: outputIndex = 0
+        
+        'Use InstrB to determine the forward index of any special characters.
+        Do While characterIndex < lastIndex                        
+            ' Convert to binary.
+            characterIndex = (characterIndex * BINARY_OFFSET) - 1 + BINARY_OFFSET
+            ' Determine min special char > 0
+            For iLoop = LBound(specialChars) To UBound(specialChars)
+                if minValues(iLoop) < characterIndex then minValues(iLoop) = InStrB(characterIndex, json, specialChars(iLoop))
+                If IsValueInRange(minValues(iLoop), 1, characterIndex - BINARY_OFFSET) Or iLoop = LBound(specialChars) Then characterIndex = minValues(iLoop)
+            Next iLoop
+            ' Convert from binary with integer division.
+            If characterIndex > 0 Then characterIndex = (characterIndex \ BINARY_OFFSET) + 1
+
+            If characterIndex > lastIndex Or characterIndex = 0 Then
+                characterIndex = lastIndex
+            End If
+
+            currentCharacter = Mid$(json, characterIndex, 1)
+
             Select Case currentCharacter
-                Case BackslashCharacter ' \ encountered.
 
-                    If partialValueAvailable Then
-                       partialValueAvailable = False
-                       Mid$(json, outputIndex, iMainLoop - partialStart) = Mid$(json, partialStart, iMainLoop - partialStart)
-                       outputIndex = outputIndex + (iMainLoop - partialStart)
-                    End If
-
-                    groupedBackslashCount = 0
+                Case QuoteCharacter
+                    unescapedQuoteCount = unescapedQuoteCount + 1:writeToBuffer = True: nonInclusiveRegionEnd = characterIndex + 1
+                    newRegionStart = characterIndex + INDEX_OFFSET
+                Case BackslashCharacter
+                    writeToBuffer = True: nonInclusiveRegionEnd = characterIndex:newOutputIndex = outputIndex: groupedBackslashCount = 0
                     ' Count how many backslashes there are until a non-backslash character is found.
                     Do
                         groupedBackslashCount = groupedBackslashCount + 1
-                        iMainLoop = iMainLoop + INDEX_OFFSET
-                        If iMainLoop > Len(json) Then Exit Do
-                    Loop Until Mid$(json, iMainLoop, 1) <> BackslashCharacter
+                        characterIndex = characterIndex + INDEX_OFFSET
+                        If characterIndex > Len(json) Then Exit Do
+                    Loop Until Mid$(json, characterIndex, 1) <> BackslashCharacter
                     
                     ' Determine how many \ to keep with integer division.
                     countOfBackslashToKeep = groupedBackslashCount \ 2
                     
                     If countOfBackslashToKeep > 0 Then
-                        ' Write backslashes to output array.
-                        For outputIndex = outputIndex + INDEX_OFFSET To outputIndex + (2 * countOfBackslashToKeep) Step INDEX_OFFSET
-                            Mid$(json, outputIndex, 1) = BackslashCharacter
-                        Next outputIndex
+                        ' Write backslashes to output
+                        For newOutputIndex = newOutputIndex + INDEX_OFFSET To newOutputIndex + (2 * countOfBackslashToKeep) Step INDEX_OFFSET
+                            Mid$(json, newOutputIndex, 1) = BackslashCharacter
+                        Next newOutputIndex
                         ' For loops will exceed boundary on last loop so reverse by the value of step.
-                        outputIndex = outputIndex - INDEX_OFFSET
+                        newOutputIndex = newOutputIndex - INDEX_OFFSET
                     End If
+                    ' If there is an even number of backslashes then all of them are escaped and the following character should be ignored.
+                    ignoreSpecialCharacter = (groupedBackslashCount Mod 2) = 0
                     
-                    ignoreSpecialCharacter = groupedBackslashCount Mod 2 = 0
-                    
-                    If iMainLoop <= Len(json) Then
-                        currentCharacter = Mid$(json, iMainLoop, 1)
-                        outputIndex = outputIndex + INDEX_OFFSET
+                    If characterIndex <= lastIndex Then
+
+                        currentCharacter = Mid$(json, characterIndex, 1):newOutputIndex = newOutputIndex + INDEX_OFFSET
                         
                         If ignoreSpecialCharacter Then
-                            Mid$(json, outputIndex, 1) = currentCharacter
+                            Mid$(json, newOutputIndex, 1) = currentCharacter
                         Else
                             Select Case currentCharacter
                                 Case "b" '\b
-                                    Mid$(json, outputIndex, 1) = VBA.vbBack  'backspace
+                                    Mid$(json, newOutputIndex, 1) = VBA.vbBack  'backspace
                                 Case "n" '\n
-                                    Mid$(json, outputIndex, 1) = vbNewLine 'newline
+                                    Mid$(json, newOutputIndex, 1) = vbNewLine 'newline
                                 Case "t" '\t
-                                    Mid$(json, outputIndex, 1) = vbTab  'tab
+                                    Mid$(json, newOutputIndex, 1) = vbTab  'tab
                                 Case "0"
-
+                                    'Null character.
+                                    newOutputIndex = newOutputIndex - INDEX_OFFSET
                                 Case QuoteCharacter, "'", "/" '\" or \/ or \0 or \'
-                                    Mid$(json, outputIndex, 1) = currentCharacter
+                                    Mid$(json, newOutputIndex, 1) = currentCharacter
                                 Case "r" '\r
-                                    Mid$(json, outputIndex, 1) = vbCr 'carriage return
+                                    Mid$(json, newOutputIndex, 1) = vbCr 'carriage return
                                 Case "f" '\f
-                                    Mid$(json, outputIndex, 1) = vbFormFeed ' Form feed
+                                    Mid$(json, newOutputIndex, 1) = vbFormFeed ' Form feed
                                 Case "u" '\u
                                     ' See: https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/chr-function
-                                    Mid$(json, outputIndex, 1) = ChrW(Val("&h" & Mid$(json, iMainLoop + 1, 4)))
-                                    iMainLoop = iMainLoop + 4
+                                    Mid$(json, newOutputIndex, 1) = ChrW(Val("&h" & Mid$(json, characterIndex + 1, 4)))
+                                    characterIndex = characterIndex + 4
                                 Case Else
                                     Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Unescaped backslash with no special character."
                             End Select
                         End If
-                    ElseIf Not ignoreSpecialCharacter Then
-                        Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Unescaped backslash at end of string: '\'"
                     End If
-                Case vbLf, vbTab, vbCr
-                    If partialValueAvailable Then
-                       partialValueAvailable = False
-                       Mid$(json, outputIndex, iMainLoop - partialStart) = Mid$(json, partialStart, iMainLoop - partialStart)
-                       outputIndex = outputIndex + (iMainLoop - partialStart)
-                    End If
-                'Case "/"
-                    'Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Unescaped solidius: '/'"
+                    newRegionStart = characterIndex + INDEX_OFFSET
+                Case vbLf, vbCr, vbTab, vbFormFeed
+                    writeToBuffer = True:nonInclusiveRegionEnd = characterIndex:newRegionStart = characterIndex + INDEX_OFFSET
                 Case Else
-                    If Not partialValueAvailable Then
-                        outputIndex = outputIndex + INDEX_OFFSET
-                        partialValueAvailable = True
-                        partialStart = iMainLoop
-                    End If
-                    If currentCharacter = QuoteCharacter Then unescapedQuoteCount = unescapedQuoteCount + 1
+                    'For the last index
+                    writeToBuffer = True:nonInclusiveRegionEnd = characterIndex + 1
             End Select
-        Next iMainLoop
-
-        If partialValueAvailable Then
-            Mid$(json, outputIndex, (iMainLoop - partialStart)) = Mid$(json, partialStart, (iMainLoop - partialStart))
-            outputIndex = outputIndex + ((iMainLoop - INDEX_OFFSET) - partialStart)
-        End If
-
+            
+            If writeToBuffer Or characterIndex = lastIndex Then
+                If Not writeToBuffer Then nonInclusiveRegionEnd = characterIndex + INDEX_OFFSET
+                outputIndex = outputIndex + 1
+                ' [json] is used as both source and buffer.[outputIndex] initializes at 1.
+                Mid$(json, outputIndex, nonInclusiveRegionEnd - regionStart) = Mid$(json, regionStart, nonInclusiveRegionEnd - regionStart)
+                ' Set to index of last addition.
+                outputIndex = outputIndex + (nonInclusiveRegionEnd - regionStart) - 1
+                ' If backslash case was used.
+                If newOutputIndex > 0 Then outputIndex = newOutputIndex: newOutputIndex = 0
+                regionStart = newRegionStart
+                writeToBuffer = False
+            End If            
+        Loop
+        ' Code has been using [json] as a buffer beginning at index 1.
         isRangeQuoteEnclosed = Left$(json, 1) = QuoteCharacter And Mid$(json, outputIndex, 1) = QuoteCharacter
-        
+        ' 
         If Not isRangeQuoteEnclosed Then
             If (Left$(json, 1) = LeftSquare And Mid$(json, outputIndex, 1) = RightSquare) Then
                 isDelimiterEnclosed = True
@@ -501,8 +514,8 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
                 isDelimiterEnclosed = True
             End If
         End If
-        
-        ' If there are 2 unescaped quotes in the byte array and they occur at the end, then byte segement is a string.
+
+        ' If there are 2 unescaped quotes in the value region and they occur at the ends, then the segement is a string.
         If (unescapedQuoteCount = 2 And isRangeQuoteEnclosed) Then
             outputString = Mid$(json, 2, outputIndex - 2)
         ElseIf unescapedQuoteCount > 0 And Not isDelimiterEnclosed Then
@@ -511,6 +524,7 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
         Else
             outputString = Left$(json, outputIndex)
         End If
+        
     Else
         isRangeQuoteEnclosed = False
         outputString = Mid$(json, startIndex, lastIndex - startIndex + 1)
@@ -592,9 +606,9 @@ Private Function BinaryCharacterIndexNotWithinQuotes(ByRef query$, ByRef charact
     
     On Error GoTo Return_Default
     
-    maxIndexBinary = (maxIndex * 2) - 1
+    maxIndexBinary = (maxIndex * BINARY_OFFSET) - 1
     ' - BINARY_OFFSET so that start position will be maintained when calculating [characterIndexBinary] and following quotes.
-    rightQuoteIndexBinary = ((startIndex * 2) - 1) - BINARY_OFFSET
+    rightQuoteIndexBinary = ((startIndex * BINARY_OFFSET) - 1) - BINARY_OFFSET
     
     updateCharacterlocation = True
     
@@ -615,7 +629,7 @@ Private Function BinaryCharacterIndexNotWithinQuotes(ByRef query$, ByRef charact
                 quoteIndexBinary = InStrB(quoteIndexBinary + BINARY_OFFSET, query, QuoteCharacter)
                 If Not quoteIndexBinary = 0 Then
                     ' Set to TRUE if previous character in the string isn't a backslash.
-                    isNotEscapedQuote = Mid$(query, ((quoteIndexBinary \ 2) + 1) - INDEX_OFFSET, 1) <> BackslashCharacter
+                    isNotEscapedQuote = Mid$(query, ((quoteIndexBinary \ BINARY_OFFSET) + 1) - INDEX_OFFSET, 1) <> BackslashCharacter
                 End If
             Loop Until isNotEscapedQuote Or quoteIndexBinary = 0 Or (loopCount = 1 And adjustLeftQuote And characterIndexBinary < quoteIndexBinary And isNotEscapedQuote)
             
