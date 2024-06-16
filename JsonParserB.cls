@@ -12,10 +12,10 @@ Option Explicit
 Private Const INVALID_JSON_FORMAT_ERROR& = vbObjectError + 547
 Private Const INDEX_OFFSET As Byte = 1
 Private Const RightCurly$ = "}", LeftCurly$ = "{", LeftSquare$ = "[", RightSquare$ = "]", _
-QuoteCharacter$ = """", BackslashCharacter$ = "\", SpaceCharacter$ = " ", ColonCharacter$ = ":"
-Private Const Comma$ = ",", BINARY_OFFSET As Byte = 2
-#Const DebugActive = False
+QuoteCharacter$ = """", BackslashCharacter$ = "\", SpaceCharacter$ = " ", ColonCharacter$ = ":",Comma$ = ",", BINARY_OFFSET As Byte = 2
 
+
+#Const DebugActive = False
 Public Function ParseJsonString(ByRef json$) As Object
     
     Set ParseJsonString = ParseJSON(json)
@@ -43,13 +43,11 @@ Private Function ParseJSON(ByRef json$) As Object
     Const nextDelimitingParentCursorKey$ = "https://github.com/Reshui?tab=repositories"
     
     On Error GoTo CATCH_FAILURE
-    
-    'json = Trim$(Replace$(Replace$(Replace$(json, vbTab, vbNullString), vbNewLine, vbNullString), vbLf, vbNullString))
-    
+
     if TryGetWhitespaceCleanedIndexes(json, 1, len(json), cursorLocation, jsonLength) then
-        If Left$(json, 1) = LeftCurly And Right$(json, 1) = RightCurly Then
+        If Mid$(json, cursorLocation,1) = LeftCurly And Mid$(json, jsonLength,1) = RightCurly Then
             isValueJsonObject = True
-        ElseIf Left$(json, 1) = LeftSquare And Right$(json, 1) = RightSquare Then
+        ElseIf Mid$(json, cursorLocation,1) = LeftSquare And Mid$(json,jsonLength, 1) = RightSquare Then
             isValueJsonArray = True
         End If
     end if
