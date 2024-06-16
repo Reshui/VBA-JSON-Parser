@@ -378,6 +378,7 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
 'Summary: Converts special characters that are lead by a \ and raises error where appropriate.
 '   For example unescaped quotes that don't enclose a value or no special character following a \.
 'Note:
+' Front end of [json] will be used as a buffer.
 ' \n: new line; \t: tab; \b: backspace; \r: carriage return; \f: form feed; \{/0"}: same character if not escaped; \\: escapes BackslashCharacter
 '========================================================================================================================================
     Dim outputString$, iMainLoop&, outputIndex&, ignoreSpecialCharacter As Boolean, isDelimiterEnclosed As Boolean, currentCharacter$, _
@@ -487,7 +488,6 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
         Next iMainLoop
 
         If partialValueAvailable Then
-            partialValueAvailable = False
             Mid$(json, outputIndex, (iMainLoop - partialStart)) = Mid$(json, partialStart, (iMainLoop - partialStart))
             outputIndex = outputIndex + ((iMainLoop - INDEX_OFFSET) - partialStart)
         End If
@@ -505,7 +505,7 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
         ' If there are 2 unescaped quotes in the byte array and they occur at the end, then byte segement is a string.
         If (unescapedQuoteCount = 2 And isRangeQuoteEnclosed) Then
             outputString = Mid$(json, 2, outputIndex - 2)
-        ElseIf unescapedQuoteCount >= 1 And Not isDelimiterEnclosed Then
+        ElseIf unescapedQuoteCount > 0 And Not isDelimiterEnclosed Then
             ' Ensure quality of string value. ie don't allow "apple to be excepted as a string.
             Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: String value isn't enclosed in quotes: " & Left$(json, outputIndex)
         Else
@@ -521,7 +521,6 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
 PropagateError:
     PropagateError Err, "ProcessSpecialCharactersInJsonStringValue"
 End Function
-
 Private Function TryGetWhitespaceCleanedIndexes(json As String, ByVal regionStartIndex&, ByVal regionEndIndex&, cleanedStartIndex&, cleanedEndIndex&) As Boolean
 '========================================================================================================================
 '   Summary:
