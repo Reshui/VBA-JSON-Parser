@@ -471,8 +471,6 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
                     End If
                 'Case 47
                     'Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Unescaped solidius: '/'"
-                Case 10, 13, 9, 8, 12
-                    'line feed,carriage return,tab,backspace,form feed
                 Case Else
                     outputIndex = outputIndex + INDEX_OFFSET
                     Mid$(json, outputIndex, 1) = currentCharacter
