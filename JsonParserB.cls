@@ -4,9 +4,11 @@
 ' @license: MIT (http://www.opensource.org/licenses/mit-license.php)
 '
 ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ '
+
+'To DO https://stackoverflow.com/a/75787820/12287457; https://github.com/guwidoe/VBA-StringTools
 Private Const INVALID_JSON_FORMAT_ERROR& = vbObjectError + 547
 Private Const INDEX_OFFSET As Byte = 1
-#Const DebugActive = True
+#Const DebugActive = False
 
 Option Explicit
 Public Function ParseJsonString(ByRef json$) As Object
@@ -30,7 +32,7 @@ Private Function ParseJSON(ByRef json$) As Object
 '' Inputs:
 ''   jsonBytes: Byte array to parse.
 '' Reference:
-''   https://www.jsonBytes.org/jsonBytes-en.html
+''   https://www.json.org/json-en.html
 ''====================================================================================================================================================================================
     Dim value$, isValueJsonObject As Boolean, isValueJsonArray As Boolean, isContainerJsonObject As Boolean, valueAvailable As Boolean
 
@@ -204,7 +206,7 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxIn
     nextCurlyCloseBinary = InStrB(currentIndexBinary + INDEX_OFFSET, json, rightCurly)
     nextSquareOpenBinary = InStrB(currentIndexBinary + INDEX_OFFSET, json, leftSquare)
     nextSquareCloseBinary = InStrB(currentIndexBinary + INDEX_OFFSET, json, rightSquare)
-    nextValidCommaTokenIndexBinary = BinaryLocationOfCharacterNotWithinQuotes(json, comma, cursorLocation + INDEX_OFFSET, maxIndex)
+    nextValidCommaTokenIndexBinary = BinaryCharacterIndexNotWithinQuotes(json, comma, cursorLocation + INDEX_OFFSET, maxIndex)
 
     If nextValidCommaTokenIndexBinary > 0 Then nextEnclosingTokenIndex = (nextValidCommaTokenIndexBinary \ 2) + 1
 
@@ -242,7 +244,7 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxIn
             If previousCloseBinary < maxIndexBinary Then
                                 
                 ' Find min not equal to 0 of the following.
-                nextEnclosingTokenIndex = BinaryLocationOfCharacterNotWithinQuotes(json, comma, (previousCloseBinary \ 2) + 1, maxIndex)
+                nextEnclosingTokenIndex = BinaryCharacterIndexNotWithinQuotes(json, comma, (previousCloseBinary \ 2) + 1, maxIndex)
                 minValues(0) = InStrB(previousCloseBinary + INDEX_OFFSET, json, rightCurly)
                 minValues(1) = InStrB(previousCloseBinary + INDEX_OFFSET, json, rightSquare)
                 
@@ -282,8 +284,13 @@ Private Function IsValueInRange(numberToCheck&, lowerBound&, upperBound&) As Boo
 End Function
 
 Private Sub GetValueRangeAndKey(ByRef json$, ByRef minimumIndex&, ByRef maxIndex&, ByRef valueStartLocation&, ByRef valueEndLocation&, ByRef valueAvailable As Boolean, ByRef keyForObject$, ByRef isKeyAvailalble As Boolean)
-
-    Dim keyValueDelimiterIndex&, isKeyWithinQuotes As Boolean, keyStartLocation&, keyEndLocation&
+'============================================================================================================================================================================================================================================
+'Summary: Attempts to retrieve a key within the bounds of [minimumIndex] and [maxIndex]. If successful then the indexes for the start and end of the key will be stored in
+'   [Byref: valueStartLocation] and [ByRef:valueEndLocation]
+'Variables:
+'   [keyForObject] Used to store keys if found.
+'============================================================================================================================================================================================================================================
+    Dim keyValueDelimiterIndex&, keyStartLocation&, keyEndLocation&
     
     Const quote$ = """", colon$ = ":"
     On Error GoTo PropagateError
@@ -292,7 +299,7 @@ Private Sub GetValueRangeAndKey(ByRef json$, ByRef minimumIndex&, ByRef maxIndex
         ' Does key start with a qukote?
         If Mid$(json, keyStartLocation, 1) = quote Then
 
-            keyValueDelimiterIndex = (BinaryLocationOfCharacterNotWithinQuotes(json, colon, keyStartLocation, valueEndLocation) \ 2) + 1
+            keyValueDelimiterIndex = (BinaryCharacterIndexNotWithinQuotes(json, colon, keyStartLocation, valueEndLocation) \ 2) + 1
             ' Is there a colon outside of quotes?
             If keyValueDelimiterIndex > 0 Then
                 ' Find boundaries of key using location of key-value delimiter.
@@ -302,8 +309,8 @@ Private Sub GetValueRangeAndKey(ByRef json$, ByRef minimumIndex&, ByRef maxIndex
                 
                 If (keyEndLocation < valueStartLocation) Then
                     ' Will raise error if invalid key.
-                    keyForObject = ProcessSpecialCharactersInJsonStringValue(json, keyStartLocation, keyEndLocation, isKeyWithinQuotes)
-                    If Not isKeyWithinQuotes Then Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key must be enclosed in quotes." & Mid$(json, keyStartLocation, keyEndLocation - keyStartLocation + 1)
+                    keyForObject = ProcessSpecialCharactersInJsonStringValue(json, keyStartLocation, keyEndLocation, isKeyAvailalble)
+                    If Not isKeyAvailalble Then Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key must be enclosed in quotes." & Mid$(json, keyStartLocation, keyEndLocation - keyStartLocation + 1)
                 Else
                     Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key overlaps with value." & Mid$(json, keyStartLocation, keyEndLocation - valueEndLocation + 1)
                 End If
@@ -452,6 +459,7 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
                                 Case "t" '\t
                                     Mid$(json, outputIndex, 1) = vbTab  'tab
                                 Case "0"
+
                                 Case quote, "'", "/" '\" or \/ or \0 or \'
                                     Mid$(json, outputIndex, 1) = currentCharacter
                                 Case "r" '\r
@@ -469,7 +477,7 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
                     ElseIf Not ignoreSpecialCharacter Then
                         Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Unescaped backslash at end of string: '\'"
                     End If
-                'Case 47
+                'Case "/"
                     'Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Unescaped solidius: '/'"
                 Case Else
                     outputIndex = outputIndex + INDEX_OFFSET
@@ -568,7 +576,7 @@ CatchRight:
     Resume NextLoop
 End Function
 
-Private Function BinaryLocationOfCharacterNotWithinQuotes(ByRef query$, ByRef character$, ByRef startIndex&, ByRef maxIndex&) As Long
+Private Function BinaryCharacterIndexNotWithinQuotes(ByRef query$, ByRef character$, ByRef startIndex&, ByRef maxIndex&) As Long
 '===============================================================================================================
 ' Summary
 '   Search for the next [character] not contained within quotes.
@@ -582,6 +590,7 @@ Private Function BinaryLocationOfCharacterNotWithinQuotes(ByRef query$, ByRef ch
     On Error GoTo Return_Default
     
     maxIndexBinary = (maxIndex * 2) - 1
+    ' - BINARY_INDEX_OFFSET so that start position will be maintained when calculating [characterIndexBinary] and following quotes.
     rightQuoteIndexBinary = ((startIndex * 2) - 1) - BINARY_INDEX_OFFSET
     
     updateCharacterlocation = True
@@ -620,14 +629,14 @@ Private Function BinaryLocationOfCharacterNotWithinQuotes(ByRef query$, ByRef ch
     Loop Until (characterIndexBinary < leftQuoteIndexBinary And Not updateCharacterlocation) Or characterIndexBinary = 0 Or (characterIndexBinary > maxIndexBinary) Or leftQuoteIndexBinary = 0 Or (loopCount = 1 And characterIndexBinary < leftQuoteIndexBinary)
     
     If characterIndexBinary > maxIndexBinary Or updateCharacterlocation Then
-        BinaryLocationOfCharacterNotWithinQuotes = 0
+        BinaryCharacterIndexNotWithinQuotes = 0
     ElseIf Not updateCharacterlocation Then
-        BinaryLocationOfCharacterNotWithinQuotes = characterIndexBinary
+        BinaryCharacterIndexNotWithinQuotes = characterIndexBinary
     End If
     
     Exit Function
 Return_Default:
-    BinaryLocationOfCharacterNotWithinQuotes = 0
+    BinaryCharacterIndexNotWithinQuotes = 0
 End Function
 
 Private Sub PropagateError(e As ErrObject, procedureName$, Optional moreDetails$ = vbNullString)
@@ -694,116 +703,12 @@ Private Sub PreProcessData(ByRef jsonBytes() As Byte)
     End If
 End Sub
 
-Public Sub Unit_Test()
-    Dim success As Boolean
-    With Me
-        '.ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,4]}" ', True
-        .ParseJsonString HTTPGet("http://worldtimeapi.org/api/timezone/America/New_York", success) ', True
-        '.ParseJsonString HTTPGet("https://publicreporting.cftc.gov/resource/jun7-fc8e.json?$select=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$group=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$limit=5000", success)', True
-    End With
-End Sub
-
-'Public Function DecodeUTF8(ByRef utf8Str As String, _
-'                  Optional ByVal raiseErrors As Boolean = False) As String
-'
-''Function transcoding an UTF-8 encoded string to the VBA-native UTF-16-LE
-''Author: Guido Witt-DÃ¶rring, https://stackoverflow.com/a/75787820/12287457
-''                            https://github.com/guwidoe/VBA-StringTools
-'
-'    Const methodName As String = "DecodeUTF8"
-'    Dim i As Long
-'    Dim numBytesOfCodePoint As Byte
-'
-'    Static numBytesOfCodePoints(0 To 255) As Byte
-'    Static mask(2 To 4) As Long
-'    Static minCp(2 To 4) As Long
-'
-'    If numBytesOfCodePoints(0) = 0 Then
-'        For i = &H0& To &H7F&: numBytesOfCodePoints(i) = 1: Next i '0xxxxxxx
-'        '110xxxxx - C0 and C1 are invalid (overlong encoding)
-'        For i = &HC2& To &HDF&: numBytesOfCodePoints(i) = 2: Next i
-'        For i = &HE0& To &HEF&: numBytesOfCodePoints(i) = 3: Next i '1110xxxx
-'       '11110xxx - 11110100, 11110101+ (= &HF5+) outside of valid Unicode range
-'        For i = &HF0& To &HF4&: numBytesOfCodePoints(i) = 4: Next i
-'        For i = 2 To 4: mask(i) = (2 ^ (7 - i) - 1): Next i
-'        minCp(2) = &H80&: minCp(3) = &H800&: minCp(4) = &H10000
-'    End If
-'
-'    Dim codepoint As Long
-'    Dim currByte As Byte
-'    Dim utf8() As Byte:  utf8 = utf8Str
-'    Dim utf16() As Byte: ReDim utf16(0 To (UBound(utf8) - LBound(utf8) + 1) * 2)
-'    Dim j As Long:       j = 0
-'    Dim k As Long
-'
-'    i = LBound(utf8)
-'    Do While i <= UBound(utf8)
-'        codepoint = utf8(i)
-'        numBytesOfCodePoint = numBytesOfCodePoints(codepoint)
-'
-'        If numBytesOfCodePoint = 0 Then
-'            If raiseErrors Then Err.Raise 5, methodName, "Invalid byte"
-'            GoTo insertErrChar
-'        ElseIf numBytesOfCodePoint = 1 Then
-'            utf16(j) = codepoint
-'            j = j + 2
-'        ElseIf i + numBytesOfCodePoint - 1 > UBound(utf8) Then
-'            If raiseErrors Then Err.Raise 5, methodName, _
-'                    "Incomplete UTF-8 codepoint at end of string."
-'            GoTo insertErrChar
-'        Else
-'            codepoint = utf8(i) And mask(numBytesOfCodePoint)
-'
-'            For k = 1 To numBytesOfCodePoint - 1
-'                currByte = utf8(i + k)
-'
-'                If (currByte And &HC0&) = &H80& Then
-'                    codepoint = (codepoint * &H40&) + (currByte And &H3F)
-'                Else
-'                    If raiseErrors Then _
-'                        Err.Raise 5, methodName, "Invalid continuation byte"
-'                    GoTo insertErrChar
-'                End If
-'            Next k
-'            'Convert the Unicode codepoint to UTF-16LE bytes
-'            If codepoint < minCp(numBytesOfCodePoint) Then
-'                If raiseErrors Then Err.Raise 5, methodName, "Overlong encoding"
-'                GoTo insertErrChar
-'            ElseIf codepoint < &HD800& Then
-'                utf16(j) = codepoint And &HFF&
-'                utf16(j + 1) = codepoint \ &H100&
-'                j = j + 2
-'            ElseIf codepoint < &HE000& Then
-'                If raiseErrors Then Err.Raise 5, methodName, _
-'                "Invalid Unicode codepoint.(Range reserved for surrogate pairs)"
-'                GoTo insertErrChar
-'            ElseIf codepoint < &H10000 Then
-'                If codepoint = &HFEFF& Then GoTo nextCp '(BOM - will be ignored)
-'                utf16(j) = codepoint And &HFF&
-'                utf16(j + 1) = codepoint \ &H100&
-'                j = j + 2
-'            ElseIf codepoint < &H110000 Then 'Calculate surrogate pair
-'                Dim m As Long:           m = codepoint - &H10000
-'                Dim loSurrogate As Long: loSurrogate = &HDC00& Or (m And &H3FF)
-'                Dim hiSurrogate As Long: hiSurrogate = &HD800& Or (m \ &H400&)
-'
-'                utf16(j) = hiSurrogate And &HFF&
-'                utf16(j + 1) = hiSurrogate \ &H100&
-'                utf16(j + 2) = loSurrogate And &HFF&
-'                utf16(j + 3) = loSurrogate \ &H100&
-'                j = j + 4
-'            Else
-'                If raiseErrors Then Err.Raise 5, methodName, _
-'                        "Codepoint outside of valid Unicode range"
-'insertErrChar:  utf16(j) = &HFD
-'                utf16(j + 1) = &HFF
-'                j = j + 2
-'
-'                If numBytesOfCodePoint = 0 Then numBytesOfCodePoint = 1
-'            End If
-'        End If
-'nextCp: i = i + numBytesOfCodePoint 'Move to the next UTF-8 codepoint
-'    Loop
-'    DecodeUTF8 = MidB$(utf16, 1, j)
-'End Function
+'Public Sub Unit_Test()
+'    Dim success As Boolean
+'    With Me
+'        '.ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,4]}" ', True
+'        '.ParseJsonString HTTPGet("http://worldtimeapi.org/api/timezone/America/New_York", success) ', True
+'        '.ParseJsonString HTTPGet("https://publicreporting.cftc.gov/resource/jun7-fc8e.json?$select=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$group=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$limit=5000", success) ', True
+'    End With
+'End Sub
 
