@@ -15,7 +15,7 @@ Private Const RightCurly$ = "}", LeftCurly$ = "{", LeftSquare$ = "[", RightSquar
 QuoteCharacter$ = """", BackslashCharacter$ = "\", SpaceCharacter$ = " ", ColonCharacter$ = ":", Comma$ = ",", BINARY_OFFSET As Byte = 2
 
 
-#Const DebugActive = True
+#Const DebugActive = false
 Public Function ParseJsonString(ByRef json$) As Object
     
     Set ParseJsonString = ParseJSON(json)
@@ -661,7 +661,7 @@ Public Sub Unit_Test()
         '.ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,4]}" ', True
         '.ParseJsonString HTTPGet("http://worldtimeapi.org/api/timezone/America/New_York", success) ', True
     'With T.StartSubTask("CFTC")
-        Me.ParseJsonString HTTPGet("https://publicreporting.cftc.gov/resource/jun7-fc8e.json?$select=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$group=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$limit=5000", success) ', True
+        'Me.ParseJsonString HTTPGet("https://publicreporting.cftc.gov/resource/jun7-fc8e.json?$select=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$group=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$limit=5000", success) ', True
         '.EndTask
     'End With
     'T.DPrint
