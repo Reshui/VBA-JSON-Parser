@@ -438,13 +438,13 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
                     ignoreSpecialCharacter = groupedBackslashCount Mod 2 = 0
                     
                     If iMainLoop <= Len(json) Then
-                    
+                        currentCharacter = Mid$(json, iMainLoop, 1)
                         outputIndex = outputIndex + INDEX_OFFSET
                         
                         If ignoreSpecialCharacter Then
-                            Mid$(json, outputIndex, 1) = Mid$(json, outputIndex, 1)
+                            Mid$(json, outputIndex, 1) = currentCharacter
                         Else
-                            Select Case Mid$(json, outputIndex, 1)
+                            Select Case currentCharacter
                                 Case "b" '\b
                                     Mid$(json, outputIndex, 1) = VBA.vbBack  'backspace
                                 Case "n" '\n
@@ -453,33 +453,30 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
                                     Mid$(json, outputIndex, 1) = vbTab  'tab
                                 Case "0"
                                 Case quote, "'", "/" '\" or \/ or \0 or \'
-                                    Mid$(json, outputIndex, 1) = Mid$(json, outputIndex, 1)
+                                    Mid$(json, outputIndex, 1) = currentCharacter
                                 Case "r" '\r
                                     Mid$(json, outputIndex, 1) = vbCr 'carriage return
                                 Case "f" '\f
                                     Mid$(json, outputIndex, 1) = vbFormFeed ' Form feed
                                 Case "u" '\u
-                                    'Is unicode get 4 bytes after u and calculate.
-                                    ' append &h
-'                                    For tempCount = 1 To 4
-'                                        iMainLoop = iMainLoop + INDEX_OFFSET
-'                                        uniCode((tempCount - 1) * 2) = json(iMainLoop)
-'                                    Next tempCount
-                                    ' To Do properly parse utf characters.
-                                    Mid$(json, outputIndex, 1) = Val("&h" & CStr(uniCode))
-
+                                    On Error Resume Next
+                                    Mid$(json, outputIndex, 1) = ChrW(Val("&h" & Mid$(json, iMainLoop, 4)))
+                                    If Err.number <> 0 Then
+                                        ' [To Do] convert string for MAC users.
+                                        Mid$(json, outputIndex, 1) = "?"
+                                        Err.Clear
+                                    End If
+                                    On Error GoTo PropagateError
+                                    iMainLoop = iMainLoop + 4
                                 Case Else
-                                    On Error GoTo 0
                                     Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Unescaped backslash with no special character."
                             End Select
                         End If
-                        
                     ElseIf Not ignoreSpecialCharacter Then
-                        On Error GoTo 0
                         Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Unescaped backslash at end of string: '\'"
                     End If
                 'Case 47
-                    'Err.Raise INVALID_JSON_FORMAT_ERROR, "Pro bvcessSpecialCharactersInJsonStringValue", "Invalid Format: Unescaped solidius: '/'"
+                    'Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Unescaped solidius: '/'"
                 Case 10, 13, 9, 8, 12
                     'line feed,carriage return,tab,backspace,form feed
                 Case Else
@@ -821,3 +818,4 @@ End Sub
 '    Loop
 '    DecodeUTF8 = MidB$(utf16, 1, j)
 'End Function
+
