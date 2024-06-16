@@ -387,9 +387,9 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
 ' \n: new line; \t: tab; \b: backspace; \r: carriage return; \f: form feed; \{/0"}: same character if not escaped; \\: escapes backslash
 '========================================================================================================================================
     Dim outputString$, iMainLoop&, outputIndex&, ignoreSpecialCharacter As Boolean, isDelimiterEnclosed As Boolean, currentCharacter$, _
-    groupedBackslashCount&, countOfBackslashToKeep&, tempCount&, uniCode(8) As Byte, processBytes As Boolean, specialChars(6) As String, unescapedQuoteCount As Long
+    groupedBackslashCount&, countOfBackslashToKeep&, processString As Boolean, specialChars(6) As String, unescapedQuoteCount As Long
     
-    Const quote$ = """", backslash As String = "\"""
+    Const quote$ = """", backslash As String = "\"
 
     specialChars(0) = quote: specialChars(1) = backslash
     specialChars(2) = vbCr: specialChars(3) = vbTab
@@ -398,15 +398,15 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
 
     ' Determine if there are any special characters in the byte range.
     For iMainLoop = LBound(specialChars) To UBound(specialChars) Step INDEX_OFFSET
-        ' If within bounds set processBytes equal to true and exit the for loop.
+        ' If within bounds set processString equal to true and exit the for loop.
         If IsValueInRange(InStrB((startIndex * 2) - 1, json, specialChars(iMainLoop)), 1, (lastIndex * 2) - 1) Then
-            processBytes = True: Exit For
+            processString = True: Exit For
         End If
     Next iMainLoop
 
     On Error GoTo PropagateError
     
-    If processBytes Then
+    If processString Then
 
         outputIndex = 0
         For iMainLoop = startIndex To lastIndex Step INDEX_OFFSET
