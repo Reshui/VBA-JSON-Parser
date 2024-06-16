@@ -459,14 +459,8 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
                                 Case "f" '\f
                                     Mid$(json, outputIndex, 1) = vbFormFeed ' Form feed
                                 Case "u" '\u
-                                    On Error Resume Next
-                                    Mid$(json, outputIndex, 1) = ChrW(Val("&h" & Mid$(json, iMainLoop, 4)))
-                                    If Err.number <> 0 Then
-                                        ' [To Do] convert string for MAC users.
-                                        Mid$(json, outputIndex, 1) = "?"
-                                        Err.Clear
-                                    End If
-                                    On Error GoTo PropagateError
+                                    ' See: https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/chr-function
+                                    Mid$(json, outputIndex, 1) = ChrW(Val("&h" & Mid$(json, iMainLoop + 1, 4)))
                                     iMainLoop = iMainLoop + 4
                                 Case Else
                                     Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Unescaped backslash with no special character."
@@ -576,7 +570,7 @@ CatchRight:
     Resume NextLoop
 End Function
 
-Private Function BinaryLocationOfCharacterNotWithinQuotes(ByRef query$, character$, startIndex&, ByVal maxIndex&) As Long
+Private Function BinaryLocationOfCharacterNotWithinQuotes(ByRef query$, ByRef character$, ByRef startIndex&, ByRef maxIndex&) As Long
 '===============================================================================================================
 ' Summary
 '   Search for the next [character] not contained within quotes.
@@ -584,20 +578,16 @@ Private Function BinaryLocationOfCharacterNotWithinQuotes(ByRef query$, characte
 '   [character] within escaped quotes will be ignored.
 '===============================================================================================================
     Dim characterIndexBinary&, leftQuoteIndexBinary&, loopCount&, rightQuoteIndexBinary&, _
-    adjustLeftQuote As Long, isNotEscapedQuote As Boolean, quoteIndexBinary&, updateCharacterlocation As Boolean
+    adjustLeftQuote As Long, isNotEscapedQuote As Boolean, quoteIndexBinary&, updateCharacterlocation As Boolean, maxIndexBinary&
     
-    Const quote$ = """", backslash$ = "\"
+    Const quote$ = """", backslash$ = "\", BINARY_INDEX_OFFSET As Byte = 2
     On Error GoTo Return_Default
-    'maxIndex
-    ' Assign to index base 1.
-     '-lboundMinusOne to get 1 based and then -INDEX_OFFSET as it will be incremented again in the do loop.
-     ' startIndex is already offset off of the token delimiter
     
-    maxIndex = (maxIndex * 2) - 1
+    maxIndexBinary = (maxIndex * 2) - 1
     rightQuoteIndexBinary = ((startIndex * 2) - 1) - BINARY_INDEX_OFFSET
     
     updateCharacterlocation = True
-    Const BINARY_INDEX_OFFSET As Byte = 2
+    
     Do
         If updateCharacterlocation Then
             characterIndexBinary = InStrB(rightQuoteIndexBinary + BINARY_INDEX_OFFSET, query, character)
@@ -629,9 +619,9 @@ Private Function BinaryLocationOfCharacterNotWithinQuotes(ByRef query$, characte
         ' Update if sandwhiched between quotes.
         updateCharacterlocation = (characterIndexBinary > leftQuoteIndexBinary And characterIndexBinary < rightQuoteIndexBinary)
 
-    Loop Until (characterIndexBinary < leftQuoteIndexBinary And Not updateCharacterlocation) Or characterIndexBinary = 0 Or (characterIndexBinary > maxIndex) Or leftQuoteIndexBinary = 0 Or (loopCount = 1 And characterIndexBinary < leftQuoteIndexBinary)
+    Loop Until (characterIndexBinary < leftQuoteIndexBinary And Not updateCharacterlocation) Or characterIndexBinary = 0 Or (characterIndexBinary > maxIndexBinary) Or leftQuoteIndexBinary = 0 Or (loopCount = 1 And characterIndexBinary < leftQuoteIndexBinary)
     
-    If characterIndexBinary > maxIndex Or updateCharacterlocation Then
+    If characterIndexBinary > maxIndexBinary Or updateCharacterlocation Then
         BinaryLocationOfCharacterNotWithinQuotes = 0
     ElseIf Not updateCharacterlocation Then
         BinaryLocationOfCharacterNotWithinQuotes = characterIndexBinary
