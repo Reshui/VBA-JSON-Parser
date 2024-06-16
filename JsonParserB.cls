@@ -68,7 +68,7 @@ Private Function ParseJSON(ByRef json$) As Object
             ' Finds the next token that encloses a value in conjunction with the current value of cursorLocation.
             nextCursorLocation = GetNextEnclosingDelimiterLocation(json, cursorLocation, jsonContainer.Item(cursorLimitKey))
 
-            If nextCursorLocation <> cursorLocation Then
+            If nextCursorLocation > cursorLocation Then
             
                 If isContainerJsonObject Then
                     ' Adjust by INDEX_OFFSET to ignore enclosing token delimiters.
@@ -122,10 +122,10 @@ Private Function ParseJSON(ByRef json$) As Object
                     End If
                 Else
                     'Should already be a raised error in GetValueRangeAndKey().
-                    Err.Raise INVALID_JSON_FORMAT_ERROR, description:="JSON parser failed. Key unavailable for object."
+                    Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="JSON parser failed. Key unavailable for object."
                 End If
             Else
-                Err.Raise INVALID_JSON_FORMAT_ERROR, description:="JSON parser failed. Current cursorLocation = next cursorLocation."
+                Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="JSON parser failed. Current cursorLocation = next cursorLocation."
             End If
             
             With jsonContainer
@@ -154,7 +154,7 @@ Private Function ParseJSON(ByRef json$) As Object
         End With
         Set ParseJSON = jsonContainer
     Else
-        Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Bytes are wrong."
+        Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Bytes are wrong."
     End If
     
     Exit Function
@@ -190,7 +190,7 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxIn
 '===========================================================================================================
     Dim nextSquareCloseBinary&, nextSquareOpenBinary&, nextValidCommaTokenIndexBinary&, currentIndexBinary&, nextOpenBinary&, nextCloseBinary&, minValues(1) As Long
     
-    Dim maxIndexBinary&,nextCurlyCloseBinary&, nextCurlyOpenBinary&, previousCloseBinary&, tokenIndicator$(1), nextEnclosingTokenIndex&, escapeEnclosingArrayOrObject As Boolean
+    Dim maxIndexBinary&, nextCurlyCloseBinary&, nextCurlyOpenBinary&, previousCloseBinary&, tokenIndicator$(1), nextEnclosingTokenIndex&, escapeEnclosingArrayOrObject As Boolean
 
     On Error GoTo Propagate
     ' These are tokens that denote the start of a new value, or the start/end of a new object or array.
@@ -262,7 +262,7 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxIn
     End Select
     
     If InStrB(1, ",]}", Mid$(json, nextEnclosingTokenIndex, 1)) = 0 Then
-        Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid JSON format. Calculated token index doesn't reference a value delimiter: " & Mid$(json, nextEnclosingTokenIndex, 1)
+        Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid JSON format. Calculated token index doesn't reference a value delimiter: " & Mid$(json, nextEnclosingTokenIndex, 1)
     End If
     
     GetNextEnclosingDelimiterLocation = nextEnclosingTokenIndex
@@ -303,18 +303,18 @@ Private Sub GetValueRangeAndKey(ByRef json$, ByRef minimumIndex&, ByRef maxIndex
                 If (keyEndLocation < valueStartLocation) Then
                     ' Will raise error if invalid key.
                     keyForObject = ProcessSpecialCharactersInJsonStringValue(json, keyStartLocation, keyEndLocation, isKeyWithinQuotes)
-                    If Not isKeyWithinQuotes Then Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key must be enclosed in quotes." & Mid$(json, keyStartLocation, keyEndLocation - keyStartLocation + 1)
+                    If Not isKeyWithinQuotes Then Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key must be enclosed in quotes." & Mid$(json, keyStartLocation, keyEndLocation - keyStartLocation + 1)
                 Else
-                    Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key overlaps with value." & Mid$(json, keyStartLocation, keyEndLocation - valueEndLocation + 1)
+                    Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key overlaps with value." & Mid$(json, keyStartLocation, keyEndLocation - valueEndLocation + 1)
                 End If
             Else
-                Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key-Value delimiter not found." & Mid$(json, keyStartLocation, keyStartLocation - valueEndLocation + 1)
+                Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key-Value delimiter not found." & Mid$(json, keyStartLocation, keyStartLocation - valueEndLocation + 1)
             End If
         Else
-            Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key doesn't start with a quote: " & Mid$(json, keyStartLocation, keyStartLocation - valueEndLocation + 1)
+            Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key doesn't start with a quote: " & Mid$(json, keyStartLocation, keyStartLocation - valueEndLocation + 1)
         End If
     Else
-        Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Expected Key-Value pair not found."
+        Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Expected Key-Value pair not found."
     End If
 
     isKeyAvailalble = True
@@ -365,7 +365,7 @@ Private Sub AddValueToObject(containerObject As Object, Optional value$, Optiona
                         containerObject.Add Null
                     End If
                 Case Else
-                    Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid format: Value isn't numeric and failed string literal checks. Ensure it's enclosed in unescaped quotes: " & value
+                    Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid format: Value isn't numeric and failed string literal checks. Ensure it's enclosed in unescaped quotes: " & value
             End Select
         End If
     Else
@@ -470,13 +470,13 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
 
                                 Case Else
                                     On Error GoTo 0
-                                    Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Unescaped backslash with no special character."
+                                    Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Unescaped backslash with no special character."
                             End Select
                         End If
                         
                     ElseIf Not ignoreSpecialCharacter Then
                         On Error GoTo 0
-                        Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Unescaped backslash at end of string: '\'"
+                        Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Unescaped backslash at end of string: '\'"
                     End If
                 'Case 47
                     'Err.Raise INVALID_JSON_FORMAT_ERROR, "Pro bvcessSpecialCharactersInJsonStringValue", "Invalid Format: Unescaped solidius: '/'"
@@ -505,7 +505,7 @@ Private Function ProcessSpecialCharactersInJsonStringValue(ByRef json$, ByRef st
             outputString = Mid$(json, 2, outputIndex - 2)
         ElseIf unescapedQuoteCount >= 1 And Not isDelimiterEnclosed Then
             ' Ensure quality of string value. ie don't allow "apple to be excepted as a string.
-            Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: String value isn't enclosed in quotes: " & Left$(json, outputIndex)
+            Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: String value isn't enclosed in quotes: " & Left$(json, outputIndex)
         Else
             outputString = Left$(json, outputIndex)
         End If
@@ -589,15 +589,15 @@ Private Function BinaryLocationOfCharacterNotWithinQuotes(ByRef query$, characte
     Dim characterIndexBinary&, leftQuoteIndexBinary&, loopCount&, rightQuoteIndexBinary&, _
     adjustLeftQuote As Long, isNotEscapedQuote As Boolean, quoteIndexBinary&, updateCharacterlocation As Boolean
     
-    Const quote$ = """", backSlashCode$ = "\"
+    Const quote$ = """", backslash$ = "\"
     On Error GoTo Return_Default
     'maxIndex
     ' Assign to index base 1.
      '-lboundMinusOne to get 1 based and then -INDEX_OFFSET as it will be incremented again in the do loop.
      ' startIndex is already offset off of the token delimiter
     
-    rightQuoteIndexBinary = ((startIndex * 2) - 1)
     maxIndex = (maxIndex * 2) - 1
+    rightQuoteIndexBinary = ((startIndex * 2) - 1) - BINARY_INDEX_OFFSET
     
     updateCharacterlocation = True
     Const BINARY_INDEX_OFFSET As Byte = 2
@@ -608,6 +608,7 @@ Private Function BinaryLocationOfCharacterNotWithinQuotes(ByRef query$, characte
         End If
         
         loopCount = loopCount + 1
+        ' Start searching from the location of right quote: wiil be incremented before searching.
         leftQuoteIndexBinary = rightQuoteIndexBinary
 
         For adjustLeftQuote = -1 To 0
@@ -617,7 +618,7 @@ Private Function BinaryLocationOfCharacterNotWithinQuotes(ByRef query$, characte
                 quoteIndexBinary = InStrB(quoteIndexBinary + BINARY_INDEX_OFFSET, query, quote)
                 If Not quoteIndexBinary = 0 Then
                     ' Set to TRUE if previous character in the string isn't a backslash.
-                    isNotEscapedQuote = Mid$(query, (quoteIndexBinary \ 2) + 1 - INDEX_OFFSET, 1) <> backSlashCode
+                    isNotEscapedQuote = Mid$(query, ((quoteIndexBinary \ 2) + 1) - INDEX_OFFSET, 1) <> backslash
                 End If
             Loop Until isNotEscapedQuote Or quoteIndexBinary = 0 Or (loopCount = 1 And adjustLeftQuote And characterIndexBinary < quoteIndexBinary And isNotEscapedQuote)
             
@@ -629,7 +630,7 @@ Private Function BinaryLocationOfCharacterNotWithinQuotes(ByRef query$, characte
             
         Next adjustLeftQuote
         ' Update if sandwhiched between quotes.
-        updateCharacterlocation = (characterIndexBinary > leftQuoteIndexBinary And characterIndexBinary < leftQuoteIndexBinary)
+        updateCharacterlocation = (characterIndexBinary > leftQuoteIndexBinary And characterIndexBinary < rightQuoteIndexBinary)
 
     Loop Until (characterIndexBinary < leftQuoteIndexBinary And Not updateCharacterlocation) Or characterIndexBinary = 0 Or (characterIndexBinary > maxIndex) Or leftQuoteIndexBinary = 0 Or (loopCount = 1 And characterIndexBinary < leftQuoteIndexBinary)
     
@@ -650,8 +651,8 @@ Private Sub PropagateError(e As ErrObject, procedureName$, Optional moreDetails$
     Const delim$ = ": "
     With e
         AddParentToErrSource e, procedureName
-        If LenB(moreDetails) > 0 Then .description = moreDetails & vbNewLine & .description
-        .Raise .number, .source, .description
+        If LenB(moreDetails) > 0 Then .Description = moreDetails & vbNewLine & .Description
+        .Raise .number, .source, .Description
     End With
        
 End Sub
@@ -711,8 +712,8 @@ End Sub
 Public Sub Unit_Test()
     Dim success As Boolean
     With Me
-        .ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,4]}" ', True
-        '.ParseJsonString HTTPGet("http://worldtimeapi.org/api/timezone/America/New_York", success)', True
+        '.ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,4]}" ', True
+        .ParseJsonString HTTPGet("http://worldtimeapi.org/api/timezone/America/New_York", success) ', True
         '.ParseJsonString HTTPGet("https://publicreporting.cftc.gov/resource/jun7-fc8e.json?$select=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$group=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$limit=5000", success)', True
     End With
 End Sub
