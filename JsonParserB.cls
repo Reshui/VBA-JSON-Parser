@@ -7,12 +7,14 @@
 
 'To DO hex to utf-16 for mac users since chrw doesn't work.
 ' https://stackoverflow.com/a/75787820/12287457; https://github.com/guwidoe/VBA-StringTools
-
+' https://stackoverflow.com/questions/56008191/get-unicode-characters-with-charcode-values-greater-hex-ffff
 Option Explicit
 Private Const INVALID_JSON_FORMAT_ERROR& = vbObjectError + 547
 Private Const INDEX_OFFSET As Byte = 1
-Private Const RightCurly$ = "}", LeftCurly$ = "{", LeftSquare$ = "[", RightSquare$ = "]", _
+Private Const RightCurly$ = "}", LeftCurly$ = "{", LeftSquare$ = "[", RightSquare$ = "]", DecimalChar$ = ".", _
 QuoteCharacter$ = """", BackslashCharacter$ = "\", SpaceCharacter$ = " ", ColonCharacter$ = ":", Comma$ = ",", BINARY_OFFSET As Byte = 2
+
+Private SpecialCharactersA$(6)
 
 #Const DebugActive = False
 Public Function ParseJsonString(ByRef json$) As Object
@@ -51,7 +53,12 @@ Private Function ParseJSON(ByRef json$) As Object
     End If
     
     If isValueJsonObject Or isValueJsonArray Then
-        
+            
+        SpecialCharactersA(0) = QuoteCharacter: SpecialCharactersA(1) = BackslashCharacter
+        SpecialCharactersA(2) = vbCr: SpecialCharactersA(3) = vbTab
+        SpecialCharactersA(4) = vbLf: SpecialCharactersA(5) = VBA.vbBack
+        SpecialCharactersA(6) = VBA.vbFormFeed
+
         CreateObjectOnStack heirarchyStack, createJsonObject:=isValueJsonObject
         Set jsonContainer = heirarchyStack(1)
         
@@ -329,7 +336,6 @@ Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As
                 containerObject.Add numberToAdd, keyForValue
             End If
         ElseIf isValueString Then
-            ' String value.
             If isContainerJsonObject Then
                 containerObject.Add keyForValue, value
             Else
@@ -337,9 +343,9 @@ Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As
             End If
         ElseIf IsNumeric(value) Then
             If isContainerJsonObject Then
-                containerObject.Add keyForValue, IIf(InStrB(1, value, ".") > 0, CDbl(value), CLng(value))
+                containerObject.Add keyForValue, IIf(InStrB(1, value, DecimalChar) > 0, CDbl(value), CLng(value))
             Else
-                containerObject.Add IIf(InStrB(1, value, ".") > 0, CDbl(value), CLng(value))
+                containerObject.Add IIf(InStrB(1, value, DecimalChar) > 0, CDbl(value), CLng(value))
             End If
         Else
             Select Case value
@@ -372,7 +378,7 @@ PropagateError:
     PropagateError Err, "AddValueToObject"
 End Sub
 
-Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef lastIndex&, Optional ByRef isRangeQuoteEnclosed As Boolean) As String
+Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef maximumAllowedIndex&, Optional ByRef isRangeQuoteEnclosed As Boolean) As String
 '========================================================================================================================================
 'Summary: Converts special characters that are lead by a \ and raises error where appropriate.
 '   For example unescaped quotes that don't enclose a value or no special character following a \.
@@ -381,22 +387,17 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
 ' \n: new line; \t: tab; \b: backspace; \r: carriage return; \f: form feed; \{/0"}: same character if not escaped; \\: escapes BackslashCharacter
 '========================================================================================================================================
     Dim outputString$, iLoop&, outputIndex&, ignoreSpecialCharacter As Boolean, isDelimiterEnclosed As Boolean, currentCharacter$, minValues&(6), _
-    groupedBackslashCount&, countOfBackslashToKeep&, processString As Boolean, specialChars(6) As String, unescapedQuoteCount As Long
-
-    specialChars(0) = QuoteCharacter: specialChars(1) = BackslashCharacter
-    specialChars(2) = vbCr: specialChars(3) = vbTab
-    specialChars(4) = vbLf: specialChars(5) = VBA.vbBack
-    specialChars(6) = VBA.vbFormFeed
+    groupedBackslashCount&, countOfBackslashToKeep&, processString As Boolean, unescapedQuoteCount As Long
 
     ' Determine if there are any special characters in the range.
-    For iLoop = LBound(specialChars) To UBound(specialChars)
+    For iLoop = LBound(SpecialCharactersA) To UBound(SpecialCharactersA)
         ' If within bounds set processString equal to true and exit the loop.
-        If IsValueInRange(InStrB((startIndex * BINARY_OFFSET) - 1, json, specialChars(iLoop)), 1, (lastIndex * BINARY_OFFSET) - 1) Then
+        If IsValueInRange(InStrB((startIndex * BINARY_OFFSET) - 1, json, SpecialCharactersA(iLoop)), 1, (maximumAllowedIndex * BINARY_OFFSET) - 1) Then
             processString = True: Exit For
         End If
     Next iLoop
 
-    On Error GoTo PropagateError
+    On Error GoTo PropagateErr
     
     If processString Then
 
@@ -405,20 +406,18 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
         regionStart = startIndex: characterIndex = startIndex - INDEX_OFFSET: outputIndex = 0
         
         'Use InstrB to determine the forward index of any special characters.
-        Do While characterIndex < lastIndex
+        Do While characterIndex < maximumAllowedIndex
             ' Convert to binary.
             characterIndex = (characterIndex * BINARY_OFFSET) - 1 + BINARY_OFFSET
             ' Determine min special char > 0
-            For iLoop = LBound(specialChars) To UBound(specialChars)
-                If minValues(iLoop) < characterIndex Then minValues(iLoop) = InStrB(characterIndex, json, specialChars(iLoop))
-                If IsValueInRange(minValues(iLoop), 1, characterIndex - BINARY_OFFSET) Or iLoop = LBound(specialChars) Then characterIndex = minValues(iLoop)
+            For iLoop = LBound(SpecialCharactersA) To UBound(SpecialCharactersA)
+                If minValues(iLoop) < characterIndex Then minValues(iLoop) = InStrB(characterIndex, json, SpecialCharactersA(iLoop))
+                If IsValueInRange(minValues(iLoop), 1, characterIndex - BINARY_OFFSET) Or iLoop = LBound(SpecialCharactersA) Then characterIndex = minValues(iLoop)
             Next iLoop
             ' Convert from binary with integer division.
             If characterIndex > 0 Then characterIndex = (characterIndex \ BINARY_OFFSET) + 1
 
-            If characterIndex > lastIndex Or characterIndex = 0 Then
-                characterIndex = lastIndex
-            End If
+            If characterIndex > maximumAllowedIndex Or characterIndex = 0 Then characterIndex = maximumAllowedIndex
 
             currentCharacter = Mid$(json, characterIndex, 1)
 
@@ -450,7 +449,7 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
                     ' If there is an even number of backslashes then all of them are escaped and the following character should be ignored.
                     ignoreSpecialCharacter = (groupedBackslashCount Mod 2) = 0
                     
-                    If characterIndex <= lastIndex Then
+                    If characterIndex <= maximumAllowedIndex Then
 
                         currentCharacter = Mid$(json, characterIndex, 1): newOutputIndex = newOutputIndex + INDEX_OFFSET
                         
@@ -475,7 +474,20 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
                                     Mid$(json, newOutputIndex, 1) = vbFormFeed ' Form feed
                                 Case "u" '\u
                                     ' See: https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/chr-function
-                                    Mid$(json, newOutputIndex, 1) = ChrW(val("&h" & Mid$(json, characterIndex + 1, 4)))
+                                    On Error Resume Next
+                                    #If Mac Then
+                                        Mid$(json, newOutputIndex, 1) = WorksheetFunction.Unichar(val("&h" & Mid$(json, characterIndex + 1, 4)))
+                                    #Else
+                                        Mid$(json, newOutputIndex, 1) = ChrW(val("&h" & Mid$(json, characterIndex + 1, 4)))
+                                    #End If
+                                    
+                                    With Err
+                                        If .Number <> 0 Then
+                                            Mid$(json, newOutputIndex, 1) = "?"
+                                        End If
+                                    End With
+                                    On Error GoTo PropagateErr
+                                    
                                     characterIndex = characterIndex + 4
                                 Case Else
                                     Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Unescaped backslash with no special character."
@@ -490,7 +502,7 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
                     writeToBuffer = True: nonInclusiveRegionEnd = characterIndex + 1
             End Select
             
-            If writeToBuffer Or characterIndex = lastIndex Then
+            If writeToBuffer Or characterIndex = maximumAllowedIndex Then
                 If Not writeToBuffer Then nonInclusiveRegionEnd = characterIndex + INDEX_OFFSET
                 outputIndex = outputIndex + 1
                 ' [json] is used as both source and buffer.[outputIndex] initializes at 1.
@@ -504,7 +516,7 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
         Loop
         ' Code has been using [json] as a buffer beginning at index 1.
         isRangeQuoteEnclosed = Left$(json, 1) = QuoteCharacter And Mid$(json, outputIndex, 1) = QuoteCharacter
-        '
+        
         If Not isRangeQuoteEnclosed Then
             If (Left$(json, 1) = LeftSquare And Mid$(json, outputIndex, 1) = RightSquare) Then
                 isDelimiterEnclosed = True
@@ -523,12 +535,12 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
         End If
     Else
         isRangeQuoteEnclosed = False
-        outputString = Mid$(json, startIndex, lastIndex - startIndex + 1)
+        outputString = Mid$(json, startIndex, maximumAllowedIndex - startIndex + 1)
     End If
 
     ProcessCharactersInRange = outputString
     Exit Function
-PropagateError:
+PropagateErr:
     PropagateError Err, "ProcessCharactersInRange"
 End Function
 Private Function TryGetWhitespaceCleanedIndexes(json As String, ByVal regionStartIndex&, ByVal regionEndIndex&, cleanedStartIndex&, cleanedEndIndex&) As Boolean
@@ -579,7 +591,6 @@ NextLoop:
     End If
 
     Exit Function
-'
 CatchLeft:
     cleaningLeft = False
     errorLeft = True
@@ -613,13 +624,11 @@ Private Function BinaryCharacterIndexNotWithinQuotes(ByRef json$, ByRef characte
             characterIndexBinary = InStrB(rightQuoteIndexBinary + BINARY_OFFSET, json, character)
             If characterIndexBinary = 0 Then Exit Do
         End If
-        
-        loopCount = loopCount + 1
+                
         ' Start searching from the location of right quote: wiil be incremented before searching.
         leftQuoteIndexBinary = rightQuoteIndexBinary
-
+        ' Loop true and then False. Alter left quote if true else right quote.
         For adjustLeftQuote = -1 To 0
-
             quoteIndexBinary = leftQuoteIndexBinary
             Do
                 quoteIndexBinary = InStrB(quoteIndexBinary + BINARY_OFFSET, json, QuoteCharacter)
@@ -638,7 +647,8 @@ Private Function BinaryCharacterIndexNotWithinQuotes(ByRef json$, ByRef characte
         Next adjustLeftQuote
         ' Update if sandwhiched between quotes.
         updateCharacterlocation = (characterIndexBinary > leftQuoteIndexBinary And characterIndexBinary < rightQuoteIndexBinary)
-
+        ' Exit loop if (character isn't sandwhiched and comma less than left quote.) OR ccharacter not found OR Calculated index is invalid OR no more left quotes.
+        loopCount = loopCount + 1
     Loop Until (characterIndexBinary < leftQuoteIndexBinary And Not updateCharacterlocation) Or characterIndexBinary = 0 Or (characterIndexBinary > maxIndexBinary) Or leftQuoteIndexBinary = 0 Or (loopCount = 1 And characterIndexBinary < leftQuoteIndexBinary)
     
     If characterIndexBinary > maxIndexBinary Or updateCharacterlocation Then
@@ -659,7 +669,7 @@ Private Sub PropagateError(e As ErrObject, procedureName$, Optional moreDetails$
     With e
         AddParentToErrSource e, procedureName
         If LenB(moreDetails) > 0 Then .Description = moreDetails & vbNewLine & .Description
-        .Raise .number, .source, .Description
+        .Raise .Number, .source, .Description
     End With
        
 End Sub
@@ -678,12 +688,10 @@ Private Sub AddParentToErrSource(e As ErrObject, parentName$)
     End With
 End Sub
 Public Sub Unit_Test()
-    Dim success As Boolean ', T As New TimedTask
-        Me.ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,{""apple"":22,""berry"":45}]}" ', True
+    Dim success As Boolean, json$
+    With Me
+        .ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,{""apple"":22,""berry"":45}]}" ', True
         '.ParseJsonString HTTPGet("http://worldtimeapi.org/api/timezone/America/New_York", success) ', True
-    'With T.StartSubTask("CFTC")
-        'Me.ParseJsonString HTTPGet("https://publicreporting.cftc.gov/resource/jun7-fc8e.json?$select=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$group=cftc_contract_market_code,commodity_group_name,commodity_subgroup_name&$limit=5000", success) ', True
-        '.EndTask
-    'End With
-    'T.DPrint
+    End With
+
 End Sub
