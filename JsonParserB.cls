@@ -607,7 +607,6 @@ Private Function BinaryCharacterIndexNotWithinQuotes(ByRef json$, ByRef characte
 '===============================================================================================================
 ' Summary
 '   Search for the next [character] not contained within quotes and returns its binary index
-.   
 ' Remarks:
 '   [character] within escaped quotes will be ignored.
 '===============================================================================================================
