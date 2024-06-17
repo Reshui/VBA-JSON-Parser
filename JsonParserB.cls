@@ -101,7 +101,7 @@ Private Function ParseJSON(ByRef json$) As Object
                         ' Add key to limit the cursor range for object.
                         AddValueToObject jsonContainer, isContainerJsonObject, addingNumber:=True, numberToAdd:=valueEndIndex, keyForValue:=cursorLimit
                         ' Index to update cursorLocation to once array or object has been completed.
-                        AddValueToObject jsonContainer, isContainerJsonObject, addingNumber:=True, numberToAdd:=nextCursorLocation, keyForValue:=cursorLocationAfterCompletion                        
+                        AddValueToObject jsonContainer, isContainerJsonObject, addingNumber:=True, numberToAdd:=nextCursorLocation, keyForValue:=cursorLocationAfterCompletion
                         cursorLocation = valueStartIndex
                     Else
                         If valueAvailable Then
@@ -330,19 +330,19 @@ Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As
         If addingNumber Then
             ' This is just used for tracking byte locations.
             If isContainerJsonObject Then
-                containerObject.Add keyForValue, numberToAdd
+                containerObject.Item(keyForValue) = numberToAdd
             Else
                 containerObject.Add numberToAdd, keyForValue
             End If
         ElseIf isValueString Then
             If isContainerJsonObject Then
-                containerObject.Add keyForValue, value
+                containerObject.Item(keyForValue) = value
             Else
                 containerObject.Add value
             End If
         ElseIf IsNumeric(value) Then
             If isContainerJsonObject Then
-                containerObject.Add keyForValue, IIf(InStrB(1, value, DecimalChar) > 0, CDbl(value), CLng(value))
+                containerObject.Item(keyForValue) = IIf(InStrB(1, value, DecimalChar) > 0, CDbl(value), CLng(value))
             Else
                 containerObject.Add IIf(InStrB(1, value, DecimalChar) > 0, CDbl(value), CLng(value))
             End If
@@ -350,13 +350,13 @@ Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As
             Select Case value
                 Case "true", "false"
                     If isContainerJsonObject Then
-                        containerObject.Add keyForValue, CBool(value)
+                        containerObject.Item(keyForValue) = CBool(value)
                     Else
                         containerObject.Add CBool(value)
                     End If
                 Case "null", vbNullString
                     If isContainerJsonObject Then
-                        containerObject.Add keyForValue, Null
+                        containerObject.Item(keyForValue) = Null
                     Else
                         containerObject.Add Null
                     End If
@@ -366,7 +366,7 @@ Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As
         End If
     Else
         If isContainerJsonObject Then
-            containerObject.Add keyForValue, newChild
+            containerObject.Item(keyForValue) = newChild
         Else
             containerObject.Add newChild
         End If
@@ -524,7 +524,7 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
             ProcessCharactersInRange = Mid$(json, 2, currentBufferIndex - 2)
         ElseIf unescapedQuoteCount > 0 And Not isArrayOrObject Then
             ' Ensure quality of string value. ie don't allow "apple to be excepted as a string.
-            Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: String value isn't enclosed in quotes: " & Left$(json, currentBufferIndex)
+            Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Invalid unescaped quotation mark(s) detected: " & Left$(json, currentBufferIndex)
         Else
             ProcessCharactersInRange = Left$(json, currentBufferIndex)
         End If
@@ -635,7 +635,7 @@ Private Function BinaryCharacterIndexNotWithinQuotes(ByRef json$, ByRef characte
                 leftQuoteIndexBinary = quoteIndexBinary
             Else
                 rightQuoteIndexBinary = quoteIndexBinary
-            End If            
+            End If
         Next adjustLeftQuote
         ' Update if sandwhiched between quotes.
         updateCharacterlocation = (characterIndexBinary > leftQuoteIndexBinary And characterIndexBinary < rightQuoteIndexBinary)
@@ -679,10 +679,12 @@ Private Sub AddParentToErrSource(e As ErrObject, parentName$)
         End If
     End With
 End Sub
+
 Public Sub Unit_Test()
     Dim success As Boolean, json$
     With Me
-        .ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,{""apple"":22,""berry"":45}]}" ', True
-        '.ParseJsonString HTTPGet("http://worldtimeapi.org/api/timezone/America/New_York", success) ', True
+        '.ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,{""apple"":22,""berry"":45}]}"
+        .ParseJsonString "{""ground\n\\\""beaver"":""tr\\ee"",""inner object"":[{""APP"":1,""Sun"":""Moon"",""Ocean"":""Beach""},[""a"",""b"",""c""],[0,1,2,[5,6,7,8],9,10]],""array"":[1,2,3,{""apple"":22,""berry"":45}]}"
+        '.ParseJsonString HTTPGet("http://worldtimeapi.org/api/timezone/America/New_York", success)
     End With
 End Sub
