@@ -246,9 +246,9 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
         End If
     
         If escapeEnclosingArrayOrObject Then
-            'Logic: Initialize previousCloseBinary to the next token End character found after the current position in the byte array.
-            'Update the next token end and open position.
-            'If open greater than the previous close or next open = 0 then you have exited the object/array that triggered the loop.
+            'Logic: Initialize previousCloseBinary to the next token End character found after the current position in [json].
+            '   Update the next token end and open position.
+            '   If open greater than the previous close or next open = 0 then you have exited the object/array that triggered the loop.
             Do
                 previousCloseBinary = nextCloseBinary
                 nextCloseBinary = InStrB(previousCloseBinary + BINARY_OFFSET, json, tokenIndicator(1))
