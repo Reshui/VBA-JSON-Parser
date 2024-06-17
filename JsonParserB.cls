@@ -98,11 +98,10 @@ Private Function ParseJSON(ByRef json$) As Object
                         End With
 
                         isContainerJsonObject = Not TypeOf jsonContainer Is Collection
-                        ' Add key to limit byte range for object.
+                        ' Add key to limit the cursor range for object.
                         AddValueToObject jsonContainer, isContainerJsonObject, addingNumber:=True, numberToAdd:=valueEndIndex, keyForValue:=cursorLimit
-                        ' Byte to update cursorLocation to once array or object has been completed.
-                        AddValueToObject jsonContainer, isContainerJsonObject, addingNumber:=True, numberToAdd:=nextCursorLocation, keyForValue:=cursorLocationAfterCompletion
-                        ' The token byte used to indicate the start of an object or array.
+                        ' Index to update cursorLocation to once array or object has been completed.
+                        AddValueToObject jsonContainer, isContainerJsonObject, addingNumber:=True, numberToAdd:=nextCursorLocation, keyForValue:=cursorLocationAfterCompletion                        
                         cursorLocation = valueStartIndex
                     Else
                         If valueAvailable Then
@@ -636,8 +635,7 @@ Private Function BinaryCharacterIndexNotWithinQuotes(ByRef json$, ByRef characte
                 leftQuoteIndexBinary = quoteIndexBinary
             Else
                 rightQuoteIndexBinary = quoteIndexBinary
-            End If
-            
+            End If            
         Next adjustLeftQuote
         ' Update if sandwhiched between quotes.
         updateCharacterlocation = (characterIndexBinary > leftQuoteIndexBinary And characterIndexBinary < rightQuoteIndexBinary)
@@ -687,5 +685,4 @@ Public Sub Unit_Test()
         .ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,{""apple"":22,""berry"":45}]}" ', True
         '.ParseJsonString HTTPGet("http://worldtimeapi.org/api/timezone/America/New_York", success) ', True
     End With
-
 End Sub
