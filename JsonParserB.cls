@@ -68,7 +68,7 @@ Private Function ParseJSON(ByRef json$) As Object
         isContainerJsonObject = Not TypeOf jsonContainer Is Collection
         
         Do While cursorLocation < jsonContainer.Item(cursorLimit)
-            ' Finds the next token that encloses a value in conjunction with the current value of cursorLocation.
+            ' Finds the next token that encloses a value in conjunction with the current ursorLocation.
             nextCursorLocation = GetNextEnclosingDelimiterLocation(json, cursorLocation, jsonContainer.Item(cursorLimit))
 
             If nextCursorLocation > cursorLocation Then
@@ -184,7 +184,7 @@ Private Sub CreateObjectOnStack(stack As Collection, createJsonObject As Boolean
   
 End Sub
 
-Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxIndex&) As Long
+Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCursorLocation&) As Long
 '===========================================================================================================
 ' Summary:
 '   Returns the location of the next token that encapsulates a complete value based on [cursorLocation].
@@ -196,13 +196,13 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxIn
     On Error GoTo Propagate
     ' Convert to binary location.
     currentIndexBinary = (cursorLocation * BINARY_OFFSET) - 1
-    maxIndexBinary = (maxIndex * BINARY_OFFSET) - 1
+    maxIndexBinary = (maxCursorLocation * BINARY_OFFSET) - 1
     ' Start searching from the next byte.
     nextCurlyOpenBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, LeftCurly)
     nextCurlyCloseBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, RightCurly)
     nextSquareOpenBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, LeftSquare)
     nextSquareCloseBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, RightSquare)
-    nextValidCommaTokenIndexBinary = BinaryCharacterIndexNotWithinQuotes(json, Comma, cursorLocation + INDEX_OFFSET, maxIndex)
+    nextValidCommaTokenIndexBinary = BinaryCharacterIndexNotWithinQuotes(json, Comma, cursorLocation + INDEX_OFFSET, maxCursorLocation)
 
     If nextValidCommaTokenIndexBinary > 0 Then nextEnclosingTokenIndex = (nextValidCommaTokenIndexBinary \ BINARY_OFFSET) + 1
 
@@ -237,8 +237,8 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxIn
             Loop Until nextOpenBinary > previousCloseBinary Or nextOpenBinary = 0 Or (previousCloseBinary >= maxIndexBinary)
 
             If previousCloseBinary < maxIndexBinary Then
-                ' Find min not equal to 0 of the following.
-                nextEnclosingTokenIndex = BinaryCharacterIndexNotWithinQuotes(json, Comma, (previousCloseBinary \ BINARY_OFFSET) + 1, maxIndex)
+                ' Find MIN not equal to 0 of the following.
+                nextEnclosingTokenIndex = BinaryCharacterIndexNotWithinQuotes(json, Comma, (previousCloseBinary \ BINARY_OFFSET) + 1, maxCursorLocation)
                 minValues(0) = InStrB(previousCloseBinary + BINARY_OFFSET, json, RightCurly)
                 minValues(1) = InStrB(previousCloseBinary + BINARY_OFFSET, json, RightSquare)
                 
@@ -247,14 +247,14 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxIn
                 Next nextCloseBinary
                 If nextEnclosingTokenIndex > 0 Then nextEnclosingTokenIndex = (nextEnclosingTokenIndex \ BINARY_OFFSET) + 1
             Else
-                nextEnclosingTokenIndex = maxIndex
+                nextEnclosingTokenIndex = maxCursorLocation
             End If
         End If
     End If
 
     Select Case nextEnclosingTokenIndex
-        Case Is <= 0, cursorLocation, Is > maxIndex
-            nextEnclosingTokenIndex = maxIndex
+        Case Is <= 0, cursorLocation, Is > maxCursorLocation
+            nextEnclosingTokenIndex = maxCursorLocation
     End Select
     
     If InStrB(1, ",]}", Mid$(json, nextEnclosingTokenIndex, 1)) = 0 Then
@@ -277,18 +277,18 @@ Private Function IsValueInRange(numberToCheck&, lowerBound&, upperBound&) As Boo
     IsValueInRange = numberToCheck >= lowerBound And numberToCheck <= upperBound
 End Function
 
-Private Sub GetValueRangeAndKey(ByRef json$, ByRef minimumIndex&, ByRef maxIndex&, ByRef valueStartLocation&, ByRef valueEndLocation&, ByRef valueAvailable As Boolean, ByRef keyForValue$, ByRef isKeyAvailalble As Boolean)
+Private Sub GetValueRangeAndKey(ByRef json$, ByRef minimumIndex&, ByRef maxSearchIndex&, ByRef valueStartLocation&, ByRef valueEndLocation&, ByRef valueAvailable As Boolean, ByRef keyForValue$, ByRef isKeyAvailalble As Boolean)
 '============================================================================================================================================================================================================================================
-'Summary: Attempts to retrieve a key within the bounds of [minimumIndex] and [maxIndex]. If successful then the indexes for the start and end of the value will be stored in
+'Summary: Attempts to retrieve a key within the bounds of [minimumIndex] and [maxSearchIndex]. If successful then the indexes for the start and end of the value will be stored in
 '   [Byref: valueStartLocation] and [ByRef:valueEndLocation]
 'Variables:
-'   [keyForValue] Used to store keys if found.
+'   [keyForValue] Used to store key if found.
 '============================================================================================================================================================================================================================================
     Dim keyValueDelimiterIndex&, keyStartLocation&, keyEndLocation&
     
     On Error GoTo PropagateError
     'If non whitespace characters exist then record their location; otherwise throw an error.
-    If TryGetWhitespaceCleanedIndexes(json, minimumIndex, maxIndex, keyStartLocation, valueEndLocation) Then
+    If TryGetWhitespaceCleanedIndexes(json, minimumIndex, maxSearchIndex, keyStartLocation, valueEndLocation) Then
         ' Does key start with a qukote?
         If Mid$(json, keyStartLocation, 1) = QuoteCharacter Then
 
@@ -380,54 +380,56 @@ End Sub
 
 Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef maximumAllowedIndex&, Optional ByRef isRangeQuoteEnclosed As Boolean) As String
 '========================================================================================================================================
-'Summary: Converts special characters that are lead by a \ and raises error where appropriate.
+'Summary: Converts special characters in the range of [startIndex] to [maximumAllowedIndex].
 '   For example unescaped quotes that don't enclose a value or no special character following a \.
+'Paramaters:
+'   json - json string to search.
+'   startIndex - Starting index within <parmaref name="json"/>
+'   maximumAllowedIndex - Max index to search for string segments.
+'   isRangeQuoteEnclosed - ByRef boolean that will have a value assigned to it. True if returned text had enclosinng quotes pruned.
 'Note:
 ' Front end of [json] will be used as a buffer.
 ' \n: new line; \t: tab; \b: backspace; \r: carriage return; \f: form feed; \{/0"}: same character if not escaped; \\: escapes BackslashCharacter
 '========================================================================================================================================
-    Dim outputString$, iLoop&, outputIndex&, ignoreSpecialCharacter As Boolean, isDelimiterEnclosed As Boolean, currentCharacter$, minValues&(6), _
-    groupedBackslashCount&, countOfBackslashToKeep&, processString As Boolean, unescapedQuoteCount As Long
+    Dim outputString$, iLoop&, currentBufferIndex&, ignoreSpecialCharacter As Boolean, isArrayOrObject As Boolean, currentCharacter$, minValues&(6), _
+    groupedBackslashCount&, countOfBackslashToKeep&, specialCharactersInRange As Boolean, unescapedQuoteCount As Long
 
     ' Determine if there are any special characters in the range.
     For iLoop = LBound(SpecialCharactersA) To UBound(SpecialCharactersA)
-        ' If within bounds set processString equal to true and exit the loop.
+        ' If within bounds set specialCharactersInRange equal to true and exit the loop.
         If IsValueInRange(InStrB((startIndex * BINARY_OFFSET) - 1, json, SpecialCharactersA(iLoop)), 1, (maximumAllowedIndex * BINARY_OFFSET) - 1) Then
-            processString = True: Exit For
+            specialCharactersInRange = True: Exit For
         End If
     Next iLoop
 
     On Error GoTo PropagateErr
     
-    If processString Then
+    If specialCharactersInRange Then
 
-        Dim characterIndex&, regionStart&, writeToBuffer As Boolean, nonInclusiveRegionEnd&, newOutputIndex&, newRegionStart&
+        Dim characterIndex&, regionStart&, writeClearedRegionToBuffer As Boolean, nonInclusiveRegionEnd&, newOutputIndex&, newRegionStart&
 
-        regionStart = startIndex: characterIndex = startIndex - INDEX_OFFSET: outputIndex = 0
-        
-        'Use InstrB to determine the forward index of any special characters.
+        regionStart = startIndex: characterIndex = startIndex - INDEX_OFFSET: currentBufferIndex = 0
+                
         Do While characterIndex < maximumAllowedIndex
             ' Convert to binary.
             characterIndex = (characterIndex * BINARY_OFFSET) - 1 + BINARY_OFFSET
-            ' Determine min special char > 0
+            ' Determine min special character index > 0.
             For iLoop = LBound(SpecialCharactersA) To UBound(SpecialCharactersA)
+                'Use InstrB to determine the forward index of any special characters if characterIndex exceeds a previously stored value.
                 If minValues(iLoop) < characterIndex Then minValues(iLoop) = InStrB(characterIndex, json, SpecialCharactersA(iLoop))
                 If IsValueInRange(minValues(iLoop), 1, characterIndex - BINARY_OFFSET) Or iLoop = LBound(SpecialCharactersA) Then characterIndex = minValues(iLoop)
             Next iLoop
             ' Convert from binary with integer division.
             If characterIndex > 0 Then characterIndex = (characterIndex \ BINARY_OFFSET) + 1
-
             If characterIndex > maximumAllowedIndex Or characterIndex = 0 Then characterIndex = maximumAllowedIndex
 
-            currentCharacter = Mid$(json, characterIndex, 1)
-
-            Select Case currentCharacter
+            Select Case Mid$(json, characterIndex, 1)
 
                 Case QuoteCharacter
-                    unescapedQuoteCount = unescapedQuoteCount + 1: writeToBuffer = True: nonInclusiveRegionEnd = characterIndex + 1
+                    unescapedQuoteCount = unescapedQuoteCount + 1: writeClearedRegionToBuffer = True: nonInclusiveRegionEnd = characterIndex + 1
                     newRegionStart = characterIndex + INDEX_OFFSET
                 Case BackslashCharacter
-                    writeToBuffer = True: nonInclusiveRegionEnd = characterIndex: newOutputIndex = outputIndex: groupedBackslashCount = 0
+                    writeClearedRegionToBuffer = True: nonInclusiveRegionEnd = characterIndex: newOutputIndex = currentBufferIndex: groupedBackslashCount = 0
                     ' Count how many backslashes there are until a non-backslash character is found.
                     Do
                         groupedBackslashCount = groupedBackslashCount + 1
@@ -439,7 +441,7 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
                     countOfBackslashToKeep = groupedBackslashCount \ 2
                     
                     If countOfBackslashToKeep > 0 Then
-                        ' Write backslashes to output
+                        ' Write backslashes to buffer.
                         For newOutputIndex = newOutputIndex + INDEX_OFFSET To newOutputIndex + (2 * countOfBackslashToKeep) Step INDEX_OFFSET
                             Mid$(json, newOutputIndex, 1) = BackslashCharacter
                         Next newOutputIndex
@@ -496,42 +498,42 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
                     End If
                     newRegionStart = characterIndex + INDEX_OFFSET
                 Case vbLf, vbCr, vbTab, vbFormFeed
-                    writeToBuffer = True: nonInclusiveRegionEnd = characterIndex: newRegionStart = characterIndex + INDEX_OFFSET
+                    writeClearedRegionToBuffer = True: nonInclusiveRegionEnd = characterIndex: newRegionStart = characterIndex + INDEX_OFFSET
                 Case Else
                     'For the last index
-                    writeToBuffer = True: nonInclusiveRegionEnd = characterIndex + 1
+                    writeClearedRegionToBuffer = True: nonInclusiveRegionEnd = characterIndex + 1
             End Select
             
-            If writeToBuffer Or characterIndex = maximumAllowedIndex Then
-                If Not writeToBuffer Then nonInclusiveRegionEnd = characterIndex + INDEX_OFFSET
-                outputIndex = outputIndex + 1
-                ' [json] is used as both source and buffer.[outputIndex] initializes at 1.
-                Mid$(json, outputIndex, nonInclusiveRegionEnd - regionStart) = Mid$(json, regionStart, nonInclusiveRegionEnd - regionStart)
+            If writeClearedRegionToBuffer Or characterIndex = maximumAllowedIndex Then
+                If Not writeClearedRegionToBuffer Then nonInclusiveRegionEnd = characterIndex + INDEX_OFFSET
+                currentBufferIndex = currentBufferIndex + 1
+                ' [json] is used as both source and buffer.[currentBufferIndex] initializes at 1.
+                Mid$(json, currentBufferIndex, nonInclusiveRegionEnd - regionStart) = Mid$(json, regionStart, nonInclusiveRegionEnd - regionStart)
                 ' Set to index of last addition.
-                outputIndex = outputIndex + (nonInclusiveRegionEnd - regionStart) - 1
+                currentBufferIndex = currentBufferIndex + (nonInclusiveRegionEnd - regionStart) - 1
                 ' If backslash case was used.
-                If newOutputIndex > 0 Then outputIndex = newOutputIndex: newOutputIndex = 0
-                regionStart = newRegionStart: writeToBuffer = False
+                If newOutputIndex > 0 Then currentBufferIndex = newOutputIndex: newOutputIndex = 0
+                regionStart = newRegionStart: writeClearedRegionToBuffer = False
             End If
         Loop
         ' Code has been using [json] as a buffer beginning at index 1.
-        isRangeQuoteEnclosed = Left$(json, 1) = QuoteCharacter And Mid$(json, outputIndex, 1) = QuoteCharacter
+        isRangeQuoteEnclosed = Left$(json, 1) = QuoteCharacter And Mid$(json, currentBufferIndex, 1) = QuoteCharacter
         
         If Not isRangeQuoteEnclosed Then
-            If (Left$(json, 1) = LeftSquare And Mid$(json, outputIndex, 1) = RightSquare) Then
-                isDelimiterEnclosed = True
-            ElseIf (Left$(json, 1) = LeftCurly And Mid$(json, outputIndex, 1) = RightCurly) Then
-                isDelimiterEnclosed = True
+            If (Left$(json, 1) = LeftSquare And Mid$(json, currentBufferIndex, 1) = RightSquare) Then
+                isArrayOrObject = True
+            ElseIf (Left$(json, 1) = LeftCurly And Mid$(json, currentBufferIndex, 1) = RightCurly) Then
+                isArrayOrObject = True
             End If
         End If
         ' If there are 2 unescaped quotes in the value region and they occur at the ends, then the segement is a string.
         If (unescapedQuoteCount = 2 And isRangeQuoteEnclosed) Then
-            outputString = Mid$(json, 2, outputIndex - 2)
-        ElseIf unescapedQuoteCount > 0 And Not isDelimiterEnclosed Then
+            outputString = Mid$(json, 2, currentBufferIndex - 2)
+        ElseIf unescapedQuoteCount > 0 And Not isArrayOrObject Then
             ' Ensure quality of string value. ie don't allow "apple to be excepted as a string.
-            Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: String value isn't enclosed in quotes: " & Left$(json, outputIndex)
+            Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: String value isn't enclosed in quotes: " & Left$(json, currentBufferIndex)
         Else
-            outputString = Left$(json, outputIndex)
+            outputString = Left$(json, currentBufferIndex)
         End If
     Else
         isRangeQuoteEnclosed = False
@@ -547,7 +549,7 @@ Private Function TryGetWhitespaceCleanedIndexes(json As String, ByVal regionStar
 '========================================================================================================================
 '   Summary:
 '       Searches for non space,newlines,line feeds and carriage returns from both ends of [json] if they exist.
-'       cleanedStartIndex and cleanedEndIndex will be set to the relevant non-white space bytes.
+'       cleanedStartIndex and cleanedEndIndex will be set to the relevant non-white space indexes.
 '============================================================================================================
     Dim cleaningLeft As Boolean, cleaningRight As Boolean, errorLeft As Boolean, errorRight As Boolean
 
@@ -601,10 +603,11 @@ CatchRight:
     Resume NextLoop
 End Function
 
-Private Function BinaryCharacterIndexNotWithinQuotes(ByRef json$, ByRef character$, ByRef startIndex&, ByRef maxIndex&) As Long
+Private Function BinaryCharacterIndexNotWithinQuotes(ByRef json$, ByRef character$, ByRef startIndex&, ByRef maxSearchIndex&) As Long
 '===============================================================================================================
 ' Summary
-'   Search for the next [character] not contained within quotes.
+'   Search for the next [character] not contained within quotes and returns its binary index
+.   
 ' Remarks:
 '   [character] within escaped quotes will be ignored.
 '===============================================================================================================
@@ -613,7 +616,7 @@ Private Function BinaryCharacterIndexNotWithinQuotes(ByRef json$, ByRef characte
     
     On Error GoTo Return_Default
     
-    maxIndexBinary = (maxIndex * BINARY_OFFSET) - 1
+    maxIndexBinary = (maxSearchIndex * BINARY_OFFSET) - 1
     ' - BINARY_OFFSET so that start position will be maintained when calculating [characterIndexBinary] and following quotes.
     rightQuoteIndexBinary = ((startIndex * BINARY_OFFSET) - 1) - BINARY_OFFSET
     
