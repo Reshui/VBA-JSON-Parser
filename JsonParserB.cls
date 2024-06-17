@@ -1,13 +1,31 @@
-' JSON parser for VBA.
-'
-' @author: MoshiM_UC@outlook.com
-' @license: MIT (http://www.opensource.org/licenses/mit-license.php)
-'
-' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ '
-
-'To DO hex to utf-16 for mac users since chrw doesn't work.
-' https://stackoverflow.com/a/75787820/12287457; https://github.com/guwidoe/VBA-StringTools
-' https://stackoverflow.com/questions/56008191/get-unicode-characters-with-charcode-values-greater-hex-ffff
+''' ============================================================================
+''' JSON parser for VBA.
+''' https://github.com/Reshui/VBA-JSON-Parser
+''' ============================================================================
+''' @author: MoshiM_UC@outlook.com
+''' ============================================================================
+''' MIT License (http://www.opensource.org/licenses/mit-license.php)
+'''
+''' Copyright (c) 2024 Yliyah Miller
+'''
+''' Permission is hereby granted, free of charge, to any person obtaining a copy
+''' of this software and associated documentation files (the "Software"), to
+''' deal in the Software without restriction, including without limitation the
+''' rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+''' sell copies of the Software, and to permit persons to whom the Software is
+''' furnished to do so, subject to the following conditions:
+'''
+''' The above copyright notice and this permission notice shall be included in
+''' all copies or substantial portions of the Software.
+'''
+''' THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+''' IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+''' FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+''' AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+''' LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+''' FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+''' IN THE SOFTWARE.
+'''=============================================================================
 Option Explicit
 Private Const INVALID_JSON_FORMAT_ERROR& = vbObjectError + 547
 Private Const INDEX_OFFSET As Byte = 1
@@ -28,13 +46,13 @@ End Function
 
 Private Function ParseJSON(ByRef json$) As Object
 ''====================================================================================================================================================================================
-'' Summary: Non-Recursive JSON byte parser.
-'' Inputs:
-''   jsonBytes: Byte array to parse.
+'' Summary: Non-Recursive JSON.
+'' Parameters:
+''      [json] - JSON string to parse.  
 '' Reference:
 ''   https://www.json.org/json-en.html
 ''====================================================================================================================================================================================
-    Dim value$, isValueJsonObject As Boolean, isValueJsonArray As Boolean, isContainerJsonObject As Boolean, valueAvailable As Boolean
+    Dim value$, isValueJsonObject As Boolean, isValueJsonArray As Boolean, isContainerJsonObject As Boolean, isValueAvailable As Boolean
 
     Dim jsonLength&, keyForValue$, valueStartIndex&, valueEndIndex&, jsonContainer As Object, _
     isValidatedString As Boolean, heirarchyStack As New Collection, cursorLocation&, nextCursorLocation&, isKeyAvailable As Boolean
@@ -75,20 +93,20 @@ Private Function ParseJSON(ByRef json$) As Object
             
                 If isContainerJsonObject Then
                     ' Adjust by INDEX_OFFSET to ignore enclosing token delimiters.
-                    GetValueRangeAndKey json, cursorLocation + INDEX_OFFSET, nextCursorLocation - INDEX_OFFSET, valueStartIndex, valueEndIndex, valueAvailable, keyForValue, isKeyAvailable
+                    GetValueRangeAndKey json, cursorLocation + INDEX_OFFSET, nextCursorLocation - INDEX_OFFSET, valueStartIndex, valueEndIndex, isValueAvailable, keyForValue, isKeyAvailable
                 End If
     
                 If Not isContainerJsonObject Or (isKeyAvailable And isContainerJsonObject) Then
                                 
                     If Not isContainerJsonObject Then
                         'Adjust by INDEX_OFFSET to exclude token delimiters.
-                        valueAvailable = TryGetWhitespaceCleanedIndexes(json, cursorLocation + INDEX_OFFSET, nextCursorLocation - INDEX_OFFSET, valueStartIndex, valueEndIndex)
+                        isValueAvailable = TryGetWhitespaceCleanedIndexes(json, cursorLocation + INDEX_OFFSET, nextCursorLocation - INDEX_OFFSET, valueStartIndex, valueEndIndex)
                     End If
                     'If value is enclosed in {} or [] then parse a new object or array.
-                    isValueJsonObject = valueAvailable And (Mid$(json, valueStartIndex, 1) = LeftCurly And Mid$(json, valueEndIndex, 1) = RightCurly)
-                    isValueJsonArray = valueAvailable And (Mid$(json, valueStartIndex, 1) = LeftSquare And Mid$(json, valueEndIndex, 1) = RightSquare)
+                    isValueJsonObject = isValueAvailable And (Mid$(json, valueStartIndex, 1) = LeftCurly And Mid$(json, valueEndIndex, 1) = RightCurly)
+                    isValueJsonArray = isValueAvailable And (Mid$(json, valueStartIndex, 1) = LeftSquare And Mid$(json, valueEndIndex, 1) = RightSquare)
 
-                    If valueAvailable And (isValueJsonObject Or isValueJsonArray) Then
+                    If isValueAvailable And (isValueJsonObject Or isValueJsonArray) Then
 
                         CreateObjectOnStack heirarchyStack, createJsonObject:=isValueJsonObject
                         With heirarchyStack
@@ -104,7 +122,7 @@ Private Function ParseJSON(ByRef json$) As Object
                         AddValueToObject jsonContainer, isContainerJsonObject, addingNumber:=True, numberToAdd:=nextCursorLocation, keyForValue:=cursorLocationAfterCompletion
                         cursorLocation = valueStartIndex
                     Else
-                        If valueAvailable Then
+                        If isValueAvailable Then
                             ' This function will remove a pair of unescaped quotes at the beginning and end of string values.
                             ' Throws an error if any other unescaped quotes.
                             value = ProcessCharactersInRange(json, valueStartIndex, valueEndIndex, isValidatedString)
@@ -114,7 +132,7 @@ Private Function ParseJSON(ByRef json$) As Object
                             isValidatedString = False
                         End If
                         AddValueToObject jsonContainer, isContainerJsonObject, value, isValueString:=isValidatedString, keyForValue:=keyForValue
-                        If valueAvailable Then value = vbNullString
+                        If isValueAvailable Then value = vbNullString
                         cursorLocation = nextCursorLocation
                     End If
 
@@ -187,6 +205,8 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
 '===========================================================================================================
 ' Summary:
 '   Returns the location of the next token index that encapsulates a complete value based on [cursorLocation].
+'   Searches for commas and determines if an object or array is between that comma and [cursorLocation]
+'   If an array or object exists, determine which comes first and loop until bounds of object are found, then search for one of ,]}
 '===========================================================================================================
     Dim nextSquareCloseBinary&, nextSquareOpenBinary&, nextValidCommaTokenIndexBinary&, currentIndexBinary&, nextOpenBinary&, nextCloseBinary&, minValues(1) As Long
     
@@ -276,7 +296,7 @@ Private Function IsValueInRange(numberToCheck&, lowerBound&, upperBound&) As Boo
     IsValueInRange = numberToCheck >= lowerBound And numberToCheck <= upperBound
 End Function
 
-Private Sub GetValueRangeAndKey(ByRef json$, ByRef minimumIndex&, ByRef maxSearchIndex&, ByRef valueStartLocation&, ByRef valueEndLocation&, ByRef valueAvailable As Boolean, ByRef keyForValue$, ByRef isKeyAvailalble As Boolean)
+Private Sub GetValueRangeAndKey(ByRef json$, ByRef minimumIndex&, ByRef maxSearchIndex&, ByRef valueStartLocation&, ByRef valueEndLocation&, ByRef isValueAvailable As Boolean, ByRef keyForValue$, ByRef isKeyAvailalble As Boolean)
 '============================================================================================================================================================================================================================================
 'Summary: Attempts to retrieve a key within the bounds of [minimumIndex] and [maxSearchIndex]. If successful then the indexes for the start and end of the value will be stored in
 '   [Byref: valueStartLocation] and [ByRef:valueEndLocation]
@@ -297,7 +317,7 @@ Private Sub GetValueRangeAndKey(ByRef json$, ByRef minimumIndex&, ByRef maxSearc
                 ' Find boundaries of key using location of key-value delimiter.
                 Call TryGetWhitespaceCleanedIndexes(json, keyStartLocation, keyValueDelimiterIndex - INDEX_OFFSET, keyStartLocation, keyEndLocation)
                 ' Find boundaries of value.
-                valueAvailable = TryGetWhitespaceCleanedIndexes(json, keyValueDelimiterIndex + INDEX_OFFSET, valueEndLocation, valueStartLocation, valueEndLocation)
+                isValueAvailable = TryGetWhitespaceCleanedIndexes(json, keyValueDelimiterIndex + INDEX_OFFSET, valueEndLocation, valueStartLocation, valueEndLocation)
                 
                 If (keyEndLocation < valueStartLocation) Then
                     ' Will raise error if invalid key.
@@ -389,7 +409,11 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
 'Note:
 ' Front end of [json] will be used as a buffer.
 ' \n: new line; \t: tab; \b: backspace; \r: carriage return; \f: form feed; \{/0"}: same character if not escaped; \\: escapes BackslashCharacter
-'========================================================================================================================================
+'==============================================================================================================================================
+' To DO hex to utf-16 for mac users since chrw doesn't work.
+' https://stackoverflow.com/a/75787820/12287457; https://github.com/guwidoe/VBA-StringTools
+' https://stackoverflow.com/questions/56008191/get-unicode-characters-with-charcode-values-greater-hex-ffff
+'==============================================================================================================================================
     Dim iLoop&, currentBufferIndex&, isArrayOrObject As Boolean, currentCharacter$, minValues&(6), _
     groupedBackslashCount&, countOfBackslashToKeep&, specialCharactersInRange As Boolean, unescapedQuoteCount As Long
 
@@ -542,6 +566,14 @@ Private Function TryGetWhitespaceCleanedIndexes(json As String, ByVal regionStar
 '   Summary:
 '       Searches for non space,newlines,line feeds and carriage returns from both ends of [json] if they exist.
 '       cleanedStartIndex and cleanedEndIndex will be set to the relevant non-white space indexes.
+'   Returns
+'       True if region between  [regionStartIndex] and [regionEndIndex] isn't just whitespace characters.
+'       [cleanedEndIndex]   - First non-whitespace index in region.
+'       [cleanedStartIndex] - Lasr non-whitespace in region.
+'   Parameters
+'       [json] - String to search
+'       [regionStartIndex] - Index to start searching at
+'       [regionEndIndex] - Maximum index to return.
 '============================================================================================================
     Dim cleaningLeft As Boolean, cleaningRight As Boolean, errorLeft As Boolean, errorRight As Boolean
 
@@ -597,7 +629,14 @@ End Function
 Private Function BinaryCharacterIndexNotWithinQuotes(ByRef json$, ByRef character$, ByRef startIndex&, ByRef maxSearchIndex&) As Long
 '===============================================================================================================
 ' Summary
-'   Search for the next [character] not contained within quotes and returns its binary index
+'       Searches for the next [character] not contained within quotes and returns its binary index
+' Parameters:
+'       [json] - String to search.
+'       [character]     - Character or string to search for.
+'       [startIndex]    - Index within [json] to start searching at.
+'       [maxSearchIndex]- Index within [json] to stop searching at.
+' Returns:
+'       Index not within unescaped quotes at which [character] appears. 0 if such a [character] doesn't exist in the region.    
 ' Remarks:
 '   [character] within escaped quotes will be ignored.
 '===============================================================================================================
