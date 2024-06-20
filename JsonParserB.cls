@@ -811,9 +811,9 @@ Private Sub AddToString(json$, textToAdd$, cursor&, Optional processFurther As B
         #If Mac Then
 
         #Else
-            Dim iCount&
+            Dim iCount&, ascwNumber&
             iCount = 1
-            While iCount <= Len(textToAdd)
+            Do While iCount <= Len(textToAdd)
                 ascwNumber = AscW(Mid$(textToAdd, iCount, 1))
                 Select Case ascwNumber
                     Case Is > 127
