@@ -796,23 +796,38 @@ End Function
 
 Private Sub AddToString(json$, textToAdd$, cursor&, Optional processFurther As Boolean = False)
 
-    Dim currentLength&, additionLength&
-
+    Dim additionLength&
+    Const quote$ = """"
+    
     If processFurther Then
         If InStrB(1, textToAdd, vbTab) > 0 Then textToAdd = Replace$(textToAdd, vbTab, "\t")
-        If InStrB(1, textToAdd, """") > 0 Then textToAdd = Replace$(textToAdd, vbTab, "\""")
-        If InStrB(1, textToAdd, vbCr) > 0 Then textToAdd = Replace$(textToAdd, vbTab, "\r")
-        If InStrB(1, textToAdd, vbBack) > 0 Then textToAdd = Replace$(textToAdd, vbTab, "\b")
-        If InStrB(1, textToAdd, vbLf) > 0 Then textToAdd = Replace$(textToAdd, vbTab, "\n")
-        If InStrB(1, textToAdd, vbFormFeed) > 0 Then textToAdd = Replace$(textToAdd, vbTab, "\f")
+        If InStrB(1, textToAdd, quote) > 0 Then textToAdd = Replace$(textToAdd, quote, "\""")
+        If InStrB(1, textToAdd, vbCr) > 0 Then textToAdd = Replace$(textToAdd, vbCr, "\r")
+        If InStrB(1, textToAdd, vbBack) > 0 Then textToAdd = Replace$(textToAdd, vbBack, "\b")
+        If InStrB(1, textToAdd, vbLf) > 0 Then textToAdd = Replace$(textToAdd, vbLf, "\n")
+        If InStrB(1, textToAdd, vbFormFeed) > 0 Then textToAdd = Replace$(textToAdd, vbFormFeed, "\f")
         If InStrB(1, textToAdd, "\") > 0 Then textToAdd = Replace$(textToAdd, "\", "\\")
         'To Do: Convert Unicode characters.
-        '
-        '
+        #If Mac Then
+
+        #Else
+            Dim iCount&
+            iCount = 1
+            While iCount <= Len(textToAdd)
+                ascwNumber = AscW(Mid$(textToAdd, iCount, 1))
+                Select Case ascwNumber
+                    Case Is > 127
+                        textToAdd = Replace$(textToAdd, Mid$(textToAdd, iCount, 1), "\u" & Format$(Hex(ascwNumber), "0000"))
+                        iCount = iCount + 6
+                    Case Else
+                        iCount = iCount + 1
+                End Select
+            Loop
+        #End If
     End If
 
     additionLength = Len(textToAdd)
-    
+    ' Increase buffer until it can contain textToAdd.
     Do Until cursor + additionLength + 1 <= Len(json)
         json = json & String(1000, " ")
     Loop
