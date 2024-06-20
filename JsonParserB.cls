@@ -799,12 +799,13 @@ Private Sub AddToString(json$, textToAdd$, cursor&, Optional processFurther As B
     Dim currentLength&, additionLength&
 
     If processFurther Then
-        If InStrB(1, textToAdd, vbTab) > 0 Then textToAdd = Repalce$(textToAdd, vbTab, "\t")
-        If InStrB(1, textToAdd, """") > 0 Then textToAdd = Repalce$(textToAdd, vbTab, "\""")
-        If InStrB(1, textToAdd, vbCr) > 0 Then textToAdd = Repalce$(textToAdd, vbTab, "\r")
-        If InStrB(1, textToAdd, vbBack) > 0 Then textToAdd = Repalce$(textToAdd, vbTab, "\b")
-        If InStrB(1, textToAdd, vbLf) > 0 Then textToAdd = Repalce$(textToAdd, vbTab, "\n")
-        If InStrB(1, textToAdd, vbFormFeed) > 0 Then textToAdd = Repalce$(textToAdd, vbTab, "\f")
+        If InStrB(1, textToAdd, vbTab) > 0 Then textToAdd = Replace$(textToAdd, vbTab, "\t")
+        If InStrB(1, textToAdd, """") > 0 Then textToAdd = Replace$(textToAdd, vbTab, "\""")
+        If InStrB(1, textToAdd, vbCr) > 0 Then textToAdd = Replace$(textToAdd, vbTab, "\r")
+        If InStrB(1, textToAdd, vbBack) > 0 Then textToAdd = Replace$(textToAdd, vbTab, "\b")
+        If InStrB(1, textToAdd, vbLf) > 0 Then textToAdd = Replace$(textToAdd, vbTab, "\n")
+        If InStrB(1, textToAdd, vbFormFeed) > 0 Then textToAdd = Replace$(textToAdd, vbTab, "\f")
+        If InStrB(1, textToAdd, "\") > 0 Then textToAdd = Replace$(textToAdd, "\", "\\")
         'To Do: Convert Unicode characters.
         '
         '
