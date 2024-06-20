@@ -38,7 +38,6 @@ Private SpecialCharactersA$(6)
 Public Function ParseJsonString(ByRef json$) As Object
     Set ParseJsonString = ParseJSON(json)
 End Function
-
 Public Function ParseJsonBytes(ByRef jsonBytes() As Byte) As Object
     'PreProcessData jsonBytes
     Set ParseJsonBytes = ParseJSON(CStr(jsonBytes))
@@ -46,9 +45,9 @@ End Function
 
 Private Function ParseJSON(ByRef json$) As Object
 ''====================================================================================================================================================================================
-'' Summary: Non-Recursive JSON.
+'' Summary: Non-Recursive JSON parser.
 '' Parameters:
-''      [json] - JSON string to parse.  
+''      [json] - JSON string to parse.
 '' Reference:
 ''   https://www.json.org/json-en.html
 ''====================================================================================================================================================================================
@@ -59,7 +58,7 @@ Private Function ParseJSON(ByRef json$) As Object
     
     Const cursorLimit$ = "MoshiM_UC@outlook.com"
     Const cursorLocationAfterCompletion$ = "https://github.com/Reshui?tab=repositories"
-    
+    Const arrayPattern$ = "[*]", objectPattern$ = "{*}"
     On Error GoTo CATCH_FAILURE
     ' This is basically a trim that also works on vbLf,vbTab,vbCr and doesn't return a new string just start and end locations.
     If TryGetWhitespaceCleanedIndexes(json, 1, Len(json), cursorLocation, jsonLength) Then
@@ -74,8 +73,7 @@ Private Function ParseJSON(ByRef json$) As Object
             
         SpecialCharactersA(0) = QuoteCharacter: SpecialCharactersA(1) = BackslashCharacter
         SpecialCharactersA(2) = vbCr: SpecialCharactersA(3) = vbTab
-        SpecialCharactersA(4) = vbLf: SpecialCharactersA(5) = VBA.vbBack
-        SpecialCharactersA(6) = VBA.vbFormFeed
+        SpecialCharactersA(4) = vbLf: SpecialCharactersA(5) = VBA.vbBack: SpecialCharactersA(6) = VBA.vbFormFeed
 
         CreateObjectOnStack heirarchyStack, createJsonObject:=isValueJsonObject
         Set jsonContainer = heirarchyStack(1)
@@ -86,9 +84,9 @@ Private Function ParseJSON(ByRef json$) As Object
         isContainerJsonObject = Not TypeOf jsonContainer Is Collection
         
         Do While cursorLocation < jsonContainer.Item(cursorLimit)
-            ' Finds the next token that encloses a value in conjunction with the current ursorLocation.
+            ' Finds the next token that encloses a value in conjunction with the current cursorLocation.
             nextCursorLocation = GetNextEnclosingDelimiterLocation(json, cursorLocation, jsonContainer.Item(cursorLimit))
-
+ 
             If nextCursorLocation > cursorLocation Then
             
                 If isContainerJsonObject Then
@@ -102,15 +100,19 @@ Private Function ParseJSON(ByRef json$) As Object
                         'Adjust by INDEX_OFFSET to exclude token delimiters.
                         isValueAvailable = TryGetWhitespaceCleanedIndexes(json, cursorLocation + INDEX_OFFSET, nextCursorLocation - INDEX_OFFSET, valueStartIndex, valueEndIndex)
                     End If
-                    'If value is enclosed in {} or [] then parse a new object or array.
-                    isValueJsonObject = isValueAvailable And (Mid$(json, valueStartIndex, 1) = LeftCurly And Mid$(json, valueEndIndex, 1) = RightCurly)
-                    isValueJsonArray = isValueAvailable And (Mid$(json, valueStartIndex, 1) = LeftSquare And Mid$(json, valueEndIndex, 1) = RightSquare)
+                                        
+                    If isValueAvailable Then
+                        'If value is enclosed in {} or [] then parse a new object or array.
+                        isValueJsonObject = Mid$(json, valueStartIndex, valueEndIndex - valueStartIndex + 1) Like objectPattern
+                        If Not isValueJsonObject Then isValueJsonArray = Mid$(json, valueStartIndex, valueEndIndex - valueStartIndex + 1) Like arrayPattern
+                    End If
 
                     If isValueAvailable And (isValueJsonObject Or isValueJsonArray) Then
-
+                        
+                        isValueJsonObject = False: isValueJsonArray = False
                         CreateObjectOnStack heirarchyStack, createJsonObject:=isValueJsonObject
+                        ' Create heirarchy by nesting child within parent.
                         With heirarchyStack
-                            ' Create heirarchy by nesting child within parent.
                             AddValueToObject jsonContainer, isContainerJsonObject, newChild:=.Item(.count), keyForValue:=keyForValue
                             Set jsonContainer = .Item(.count)
                         End With
@@ -128,8 +130,7 @@ Private Function ParseJSON(ByRef json$) As Object
                             value = ProcessCharactersInRange(json, valueStartIndex, valueEndIndex, isValidatedString)
                         Else
                             ' Code will convert this to null in AddValueToObject() below.
-                            value = vbNullString
-                            isValidatedString = False
+                            value = vbNullString: isValidatedString = False
                         End If
                         AddValueToObject jsonContainer, isContainerJsonObject, value, isValueString:=isValidatedString, keyForValue:=keyForValue
                         If isValueAvailable Then value = vbNullString
@@ -137,8 +138,7 @@ Private Function ParseJSON(ByRef json$) As Object
                     End If
 
                     If isKeyAvailable Then
-                        keyForValue = vbNullString
-                        isKeyAvailable = False
+                        keyForValue = vbNullString: isKeyAvailable = False
                     End If
                 Else
                     'Should already be a raised error in GetValueRangeAndKey().
@@ -198,16 +198,20 @@ Private Sub CreateObjectOnStack(stack As Collection, createJsonObject As Boolean
     Else
         stack.Add New Collection
     End If
-  
+
 End Sub
 
 Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCursorLocation&) As Long
-'===========================================================================================================
+'=======================================================================================================================================
 ' Summary:
 '   Returns the location of the next token index that encapsulates a complete value based on [cursorLocation].
 '   Searches for commas and determines if an object or array is between that comma and [cursorLocation]
 '   If an array or object exists, determine which comes first and loop until bounds of object are found, then search for one of ,]}
-'===========================================================================================================
+' Parameters:
+'   [json] - String to search.
+'   [cursorLocation] - Location to start searching from.
+'   [maxCursorLocation] - Max returnable index.
+'=======================================================================================================================================
     Dim nextSquareCloseBinary&, nextSquareOpenBinary&, nextValidCommaTokenIndexBinary&, currentIndexBinary&, nextOpenBinary&, nextCloseBinary&, minValues(1) As Long
     
     Dim maxIndexBinary&, nextCurlyCloseBinary&, nextCurlyOpenBinary&, previousCloseBinary&, tokenIndicator$(1), nextEnclosingTokenIndex&, escapeEnclosingArrayOrObject As Boolean
@@ -216,7 +220,7 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
     ' Convert to binary location.
     currentIndexBinary = (cursorLocation * BINARY_OFFSET) - 1
     maxIndexBinary = (maxCursorLocation * BINARY_OFFSET) - 1
-    ' Start searching from the next byte.
+    ' Start searching from at the index.
     nextCurlyOpenBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, LeftCurly)
     nextCurlyCloseBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, RightCurly)
     nextSquareOpenBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, LeftSquare)
@@ -232,23 +236,19 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
         ' then determine if the Comma is encapsulated. If it is, then find the next Comma that isn't encapsulated to find the end of the value.
         '======================================================================================================================================
         If IsValueInRange(nextCurlyOpenBinary, currentIndexBinary + BINARY_OFFSET, nextValidCommaTokenIndexBinary - BINARY_OFFSET) And (nextCurlyOpenBinary < nextSquareOpenBinary Or nextSquareOpenBinary = 0) Then
-            
             tokenIndicator(0) = LeftCurly: tokenIndicator(1) = RightCurly
             nextOpenBinary = nextCurlyOpenBinary: nextCloseBinary = nextCurlyCloseBinary
             escapeEnclosingArrayOrObject = True
-                  
         ElseIf IsValueInRange(nextSquareOpenBinary, currentIndexBinary + BINARY_OFFSET, nextValidCommaTokenIndexBinary - BINARY_OFFSET) And (nextSquareOpenBinary < nextCurlyOpenBinary Or nextCurlyOpenBinary = 0) Then
-            
             tokenIndicator(0) = LeftSquare: tokenIndicator(1) = RightSquare
             nextOpenBinary = nextSquareOpenBinary: nextCloseBinary = nextSquareCloseBinary
             escapeEnclosingArrayOrObject = True
-            
         End If
     
         If escapeEnclosingArrayOrObject Then
-            'Logic: Initialize previousCloseBinary to the next token End character found after the current position in [json].
-            '   Update the next token end and open position.
-            '   If open greater than the previous close or next open = 0 then you have exited the object/array that triggered the loop.
+            ' Initialize previousCloseBinary to the next token End character found after the current position in [json].
+            ' Update the next token end and open position.
+            ' If open greater than the previous close or next open = 0 then you have exited the object/array that triggered the loop.
             Do
                 previousCloseBinary = nextCloseBinary
                 nextCloseBinary = InStrB(previousCloseBinary + BINARY_OFFSET, json, tokenIndicator(1))
@@ -429,7 +429,7 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
     
     If specialCharactersInRange Then
 
-        Dim characterIndex&, regionStart&, writeClearedRegionToBuffer As Boolean, nonInclusiveRegionEnd&, newOutputIndex&, newRegionStart&
+        Dim characterIndex&, regionStart&, writeClearedRegionToBuffer As Boolean, nonInclusiveRegionEnd&, newBufferIndex&, newRegionStart&
 
         regionStart = startIndex: characterIndex = startIndex - INDEX_OFFSET: currentBufferIndex = 0
                 
@@ -452,7 +452,7 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
                     unescapedQuoteCount = unescapedQuoteCount + 1: writeClearedRegionToBuffer = True: nonInclusiveRegionEnd = characterIndex + 1
                     newRegionStart = characterIndex + INDEX_OFFSET
                 Case BackslashCharacter
-                    writeClearedRegionToBuffer = True: nonInclusiveRegionEnd = characterIndex: newOutputIndex = currentBufferIndex: groupedBackslashCount = 0
+                    writeClearedRegionToBuffer = True: nonInclusiveRegionEnd = characterIndex: newBufferIndex = currentBufferIndex: groupedBackslashCount = 0
                     ' Count how many backslashes there are until a non-backslash character is found.
                     Do
                         groupedBackslashCount = groupedBackslashCount + 1
@@ -464,45 +464,44 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
                     
                     If countOfBackslashToKeep > 0 Then
                         ' Write backslashes to buffer.
-                        For newOutputIndex = newOutputIndex + INDEX_OFFSET To newOutputIndex + countOfBackslashToKeep Step INDEX_OFFSET
-                            Mid$(json, newOutputIndex, 1) = BackslashCharacter
-                        Next newOutputIndex
+                        For newBufferIndex = newBufferIndex + INDEX_OFFSET To newBufferIndex + countOfBackslashToKeep Step INDEX_OFFSET
+                            Mid$(json, newBufferIndex, 1) = BackslashCharacter
+                        Next newBufferIndex
                         ' For loops will exceed boundary on last loop so reverse by the value of step.
-                        newOutputIndex = newOutputIndex - INDEX_OFFSET
+                        newBufferIndex = newBufferIndex - INDEX_OFFSET
                     End If
                     
                     If characterIndex <= maximumAllowedIndex Then
                         ' If there is an even number of backslashes then all of them are escaped and the following character doesn't need additional processing.
                         If (groupedBackslashCount Mod 2) <> 0 Then
-                            currentCharacter = Mid$(json, characterIndex, 1): newOutputIndex = newOutputIndex + INDEX_OFFSET
+                            currentCharacter = Mid$(json, characterIndex, 1): newBufferIndex = newBufferIndex + INDEX_OFFSET
                             Select Case currentCharacter
                                 Case "b" '\b
-                                    Mid$(json, newOutputIndex, 1) = VBA.vbBack  'backspace
+                                    Mid$(json, newBufferIndex, 1) = VBA.vbBack  'backspace
                                 Case "n" '\n
-                                    Mid$(json, newOutputIndex, 1) = vbNewLine 'newline
+                                    Mid$(json, newBufferIndex, 1) = vbLf
                                 Case "t" '\t
-                                    Mid$(json, newOutputIndex, 1) = vbTab  'tab
-                                Case "0"
-                                    'Null character.
-                                    newOutputIndex = newOutputIndex - INDEX_OFFSET
+                                    Mid$(json, newBufferIndex, 1) = vbTab  'tab
+                                Case "0" 'Null character.
+                                    newBufferIndex = newBufferIndex - INDEX_OFFSET
                                 Case QuoteCharacter, "'", "/" '\" or \/ or \0 or \'
-                                    Mid$(json, newOutputIndex, 1) = currentCharacter
+                                    Mid$(json, newBufferIndex, 1) = currentCharacter
                                 Case "r" '\r
-                                    Mid$(json, newOutputIndex, 1) = vbCr 'carriage return
+                                    Mid$(json, newBufferIndex, 1) = vbCr 'carriage return
                                 Case "f" '\f
-                                    Mid$(json, newOutputIndex, 1) = vbFormFeed ' Form feed
+                                    Mid$(json, newBufferIndex, 1) = vbFormFeed ' Form feed
                                 Case "u" '\u
                                     ' See: https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/chr-function
                                     On Error Resume Next
                                     #If Mac Then
-                                        Mid$(json, newOutputIndex, 1) = WorksheetFunction.Unichar(val("&h" & Mid$(json, characterIndex + 1, 4)))
+                                        Mid$(json, newBufferIndex, 1) = WorksheetFunction.Unichar(val("&h" & Mid$(json, characterIndex + 1, 4)))
                                     #Else
-                                        Mid$(json, newOutputIndex, 1) = ChrW(val("&h" & Mid$(json, characterIndex + 1, 4)))
+                                        Mid$(json, newBufferIndex, 1) = ChrW(val("&h" & Mid$(json, characterIndex + 1, 4)))
                                     #End If
                                     
                                     With Err
                                         If .Number <> 0 Then
-                                            Mid$(json, newOutputIndex, 1) = "?": .Clear
+                                            Mid$(json, newBufferIndex, 1) = "?": .Clear
                                         End If
                                     End With
                                     On Error GoTo PropagateErr
@@ -529,7 +528,7 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
                 ' Set to index of last addition.
                 currentBufferIndex = currentBufferIndex + (nonInclusiveRegionEnd - regionStart) - 1
                 ' If backslash case was used.
-                If newOutputIndex > 0 Then currentBufferIndex = newOutputIndex: newOutputIndex = 0
+                If newBufferIndex > 0 Then currentBufferIndex = newBufferIndex: newBufferIndex = 0
                 regionStart = newRegionStart: writeClearedRegionToBuffer = False
             End If
         Loop
@@ -537,9 +536,9 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
         isRangeQuoteEnclosed = Left$(json, 1) = QuoteCharacter And Mid$(json, currentBufferIndex, 1) = QuoteCharacter
         
         If Not isRangeQuoteEnclosed Then
-            If (Left$(json, 1) = LeftSquare And Mid$(json, currentBufferIndex, 1) = RightSquare) Then
+            If (Left$(json, 1) = LeftCurly And Mid$(json, currentBufferIndex, 1) = RightCurly) Then
                 isArrayOrObject = True
-            ElseIf (Left$(json, 1) = LeftCurly And Mid$(json, currentBufferIndex, 1) = RightCurly) Then
+            ElseIf (Left$(json, 1) = LeftSquare And Mid$(json, currentBufferIndex, 1) = RightSquare) Then
                 isArrayOrObject = True
             End If
         End If
@@ -569,12 +568,12 @@ Private Function TryGetWhitespaceCleanedIndexes(json As String, ByVal regionStar
 '   Returns
 '       True if region between  [regionStartIndex] and [regionEndIndex] isn't just whitespace characters.
 '       [cleanedEndIndex]   - First non-whitespace index in region.
-'       [cleanedStartIndex] - Lasr non-whitespace in region.
+'       [cleanedStartIndex] - Last non-whitespace in region.
 '   Parameters
 '       [json] - String to search
 '       [regionStartIndex] - Index to start searching at
 '       [regionEndIndex] - Maximum index to return.
-'============================================================================================================
+'========================================================================================================================
     Dim cleaningLeft As Boolean, cleaningRight As Boolean, errorLeft As Boolean, errorRight As Boolean
 
     'Max index should be the non null portion of a string byte.
@@ -627,7 +626,7 @@ CatchRight:
 End Function
 
 Private Function BinaryCharacterIndexNotWithinQuotes(ByRef json$, ByRef character$, ByRef startIndex&, ByRef maxSearchIndex&) As Long
-'===============================================================================================================
+'======================================================================================================================================
 ' Summary
 '       Searches for the next [character] not contained within quotes and returns its binary index
 ' Parameters:
@@ -636,10 +635,10 @@ Private Function BinaryCharacterIndexNotWithinQuotes(ByRef json$, ByRef characte
 '       [startIndex]    - Index within [json] to start searching at.
 '       [maxSearchIndex]- Index within [json] to stop searching at.
 ' Returns:
-'       Index not within unescaped quotes at which [character] appears. 0 if such a [character] doesn't exist in the region.    
+'       The binary Index not within unescaped quotes at which [character] appears. 0 if such a [character] doesn't exist in the region.
 ' Remarks:
 '   [character] within escaped quotes will be ignored.
-'===============================================================================================================
+'======================================================================================================================================
     Dim characterIndexBinary&, leftQuoteIndexBinary&, loopCount&, rightQuoteIndexBinary&, _
     adjustLeftQuote As Long, isNotEscapedQuote As Boolean, quoteIndexBinary&, updateCharacterlocation As Boolean, maxIndexBinary&
     
@@ -702,7 +701,7 @@ Private Sub PropagateError(e As ErrObject, procedureName$, Optional moreDetails$
         If LenB(moreDetails) > 0 Then .Description = moreDetails & vbNewLine & .Description
         .Raise .Number, .source, .Description
     End With
-       
+    
 End Sub
 
 Private Sub AddParentToErrSource(e As ErrObject, parentName$)
@@ -726,4 +725,98 @@ Public Sub Unit_Test()
         .ParseJsonString "{""ground\n\\\""beaver"":""tr\\ee"",""inner object"":[{""APP"":1,""Sun"":""Moon"",""Ocean"":""Beach""},[""a"",""b"",""c""],[0,1,2,[5,6,7,8],9,10]],""array"":[1,2,3,{""apple"":22,""berry"":45}]}"
         '.ParseJsonString HTTPGet("http://worldtimeapi.org/api/timezone/America/New_York", success)
     End With
+End Sub
+Public Function ConvertToJSON(container As Object) As String
+'=========================================================================================================================
+' Summary:
+'       Converts a Dictionary or Collection to a JSON string.
+'=========================================================================================================================
+    Dim output$, cursorLocation&, isContainerJsonObject As Boolean, keyOrIndex$(), iCount&, isValueString As Boolean
+
+    Const quote$ = """"
+    output = String(1000, " ")
+        
+    If Not TypeOf container Is Collection Then
+        isContainerJsonObject = True
+        keyOrIndex = container.keys
+    Else
+        ReDim keyOrIndex(1 To container.count)
+        For iCount = 1 To UBound(keyOrIndex)
+            keyOrIndex(iCount) = iCount
+        Next iCount
+    End If
+
+    If isContainerJsonObject Then
+        AddToString output, "{", cursorLocation
+    Else
+        AddToString output, "[", cursorLocation
+    End If
+    
+    With container
+
+        For iCount = LBound(keyOrIndex) To UBound(keyOrIndex)
+
+            If isContainerJsonObject Then
+                AddToString output, quote, cursorLocation
+                AddToString output, keyOrIndex(iCount), cursorLocation, True
+                AddToString output, quote, cursorLocation
+                AddToString output, ":", cursorLocation
+            End If
+                
+            If IsObject(.Item(keyOrIndex(iCount))) Then
+                AddToString output, ConvertToJSON(.Item(keyOrIndex(iCount))), cursorLocation
+            Else
+                If VarType(.Item(keyOrIndex(iCount))) = vbString Then
+                    isValueString = True
+                Else
+                    isValueString = False
+                End If
+                
+                If isValueString Then AddToString output, quote, cursorLocation
+                AddToString output, .Item(keyOrIndex(iCount)), cursorLocation, isValueString
+                If isValueString Then AddToString output, quote, cursorLocation
+                
+            End If
+
+            If iCount <> UBound(keyOrIndex) Then
+                AddToString output, ",", cursorLocation
+            End If
+
+        Next iCount
+
+    End With
+    
+    If isContainerJsonObject Then
+        AddToString output, "}", cursorLocation
+    Else
+        AddToString output, "]", cursorLocation
+    End If
+    ConvertToJSON = Left$(output, cursorLocation)
+End Function
+
+Private Sub AddToString(json$, textToAdd$, cursor&, Optional processFurther As Boolean = False)
+
+    Dim currentLength&, additionLength&
+
+    If processFurther Then
+        If InStrB(1, textToAdd, vbTab) > 0 Then textToAdd = Repalce$(textToAdd, vbTab, "\t")
+        If InStrB(1, textToAdd, """") > 0 Then textToAdd = Repalce$(textToAdd, vbTab, "\""")
+        If InStrB(1, textToAdd, vbCr) > 0 Then textToAdd = Repalce$(textToAdd, vbTab, "\r")
+        If InStrB(1, textToAdd, vbBack) > 0 Then textToAdd = Repalce$(textToAdd, vbTab, "\b")
+        If InStrB(1, textToAdd, vbLf) > 0 Then textToAdd = Repalce$(textToAdd, vbTab, "\n")
+        If InStrB(1, textToAdd, vbFormFeed) > 0 Then textToAdd = Repalce$(textToAdd, vbTab, "\f")
+        'To Do: Convert Unicode characters.
+        '
+        '
+    End If
+
+    additionLength = Len(textToAdd)
+    
+    Do Until cursor + additionLength + 1 <= Len(json)
+        json = json & String(1000, " ")
+    Loop
+    
+    Mid$(json, cursor + 1, additionLength) = textToAdd
+    cursor = cursor + additionLength
+
 End Sub
