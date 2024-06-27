@@ -1,3 +1,12 @@
+VERSION 1.0 CLASS
+BEGIN
+  MultiUse = -1  'True
+END
+Attribute VB_Name = "JsonParserB"
+Attribute VB_GlobalNameSpace = False
+Attribute VB_Creatable = False
+Attribute VB_PredeclaredId = False
+Attribute VB_Exposed = False
 ''' ============================================================================
 ''' JSON parser for VBA.
 ''' https://github.com/Reshui/VBA-JSON-Parser
@@ -33,8 +42,8 @@ Private Const RightCurly$ = "}", LeftCurly$ = "{", LeftSquare$ = "[", RightSquar
 QuoteCharacter$ = """", BackslashCharacter$ = "\", SpaceCharacter$ = " ", ColonCharacter$ = ":", Comma$ = ",", BINARY_OFFSET As Byte = 2
 
 Private SpecialCharactersA$(6)
-
 #Const DebugActive = False
+
 Public Function ParseJsonString(ByRef json$) As Object
     Set ParseJsonString = ParseJSON(json)
 End Function
@@ -479,7 +488,7 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
                                 Case "b" '\b
                                     Mid$(json, newBufferIndex, 1) = VBA.vbBack  'backspace
                                 Case "n" '\n
-                                    Mid$(json, newBufferIndex, 1) = vbLf
+                                    Mid$(json, newBufferIndex, 1) = vbNewLine 'newline
                                 Case "t" '\t
                                     Mid$(json, newBufferIndex, 1) = vbTab  'tab
                                 Case "0" 'Null character.
@@ -723,17 +732,15 @@ Public Sub Unit_Test()
     With Me
         '.ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,{""apple"":22,""berry"":45}]}"
         .ParseJsonString "{""ground\n\\\""beaver"":""tr\\ee"",""inner object"":[{""APP"":1,""Sun"":""Moon"",""Ocean"":""Beach""},[""a"",""b"",""c""],[0,1,2,[5,6,7,8],9,10]],""array"":[1,2,3,{""apple"":22,""berry"":45}]}"
-        '.ParseJsonString HTTPGet("http://worldtimeapi.org/api/timezone/America/New_York", success)
+        '.ParseJsonString HttpGet("http://worldtimeapi.org/api/timezone/America/New_York", success)
     End With
 End Sub
-Public Function ConvertToJSON(container As Object) As String
-'=========================================================================================================================
-' Summary:
-'       Converts a Dictionary or Collection to a JSON string.
-'=========================================================================================================================
-    Dim output$, cursorLocation&, isContainerJsonObject As Boolean, keyOrIndex$(), iCount&, isValueString As Boolean
+Public Function ConvertToJSON(container As Object, encloseStringsInEscapedQuotes As Boolean) As String
 
-    Const quote$ = """"
+    Dim output$, cursorLocation&, isContainerJsonObject As Boolean, keyOrIndex() As Variant, iCount&, isValueString As Boolean, quote$
+    
+    quote = IIf(encloseStringsInEscapedQuotes, "\""", """")
+    
     output = String(1000, " ")
         
     If Not TypeOf container Is Collection Then
@@ -758,13 +765,13 @@ Public Function ConvertToJSON(container As Object) As String
 
             If isContainerJsonObject Then
                 AddToString output, quote, cursorLocation
-                AddToString output, keyOrIndex(iCount), cursorLocation, True
+                AddToString output, CStr(keyOrIndex(iCount)), cursorLocation, True
                 AddToString output, quote, cursorLocation
                 AddToString output, ":", cursorLocation
             End If
                 
             If IsObject(.Item(keyOrIndex(iCount))) Then
-                AddToString output, ConvertToJSON(.Item(keyOrIndex(iCount))), cursorLocation
+                AddToString output, ConvertToJSON(.Item(keyOrIndex(iCount)), encloseStringsInEscapedQuotes), cursorLocation
             Else
                 If VarType(.Item(keyOrIndex(iCount))) = vbString Then
                     isValueString = True
@@ -808,22 +815,22 @@ Private Sub AddToString(json$, textToAdd$, cursor&, Optional processFurther As B
         If InStrB(1, textToAdd, vbFormFeed) > 0 Then textToAdd = Replace$(textToAdd, vbFormFeed, "\f")
         If InStrB(1, textToAdd, "\") > 0 Then textToAdd = Replace$(textToAdd, "\", "\\")
         'To Do: Convert Unicode characters.
-        #If Mac Then
-
-        #Else
-            Dim iCount&, ascwNumber&
-            iCount = 1
-            Do While iCount <= Len(textToAdd)
-                ascwNumber = AscW(Mid$(textToAdd, iCount, 1))
-                Select Case ascwNumber
-                    Case Is > 127
-                        textToAdd = Replace$(textToAdd, Mid$(textToAdd, iCount, 1), "\u" & Format$(Hex(ascwNumber), "0000"))
-                        iCount = iCount + 6
-                    Case Else
-                        iCount = iCount + 1
-                End Select
-            Loop
-        #End If
+'        #If Mac Then
+'
+'        #Else
+'            Dim iCount&, ascwNumber&
+'            iCount = 1
+'            Do While iCount <= Len(textToAdd)
+'                ascwNumber = AscW(Mid$(textToAdd, iCount, 1))
+'                Select Case ascwNumber
+'                    Case Is > 127
+'                        textToAdd = Replace$(textToAdd, Mid$(textToAdd, iCount, 1), "\u" & Format$(Hex(ascwNumber), "0000"))
+'                        iCount = iCount + 6
+'                    Case Else
+'                        iCount = iCount + 1
+'                End Select
+'            Loop
+'        #End If
     End If
 
     additionLength = Len(textToAdd)
