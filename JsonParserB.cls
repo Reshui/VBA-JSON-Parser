@@ -198,7 +198,79 @@ CATCH_FAILURE:
         PropagateError Err, "ParseJSON"
     #End If
 End Function
+Public Sub Unit_Test()
+    Dim success As Boolean, json$
+    With Me
+        '.ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,{""apple"":22,""berry"":45}]}"
+        .ParseJsonString "{""ground\n\\\""beaver"":""tr\\ee"",""inner object"":[{""APP"":1,""Sun"":""Moon"",""Ocean"":""Beach""},[""a"",""b"",""c""],[0,1,2,[5,6,7,8],9,10]],""array"":[1,2,3,{""apple"":22,""berry"":45}]}"
+        '.ParseJsonString HttpGet("http://worldtimeapi.org/api/timezone/America/New_York", success)
+    End With
+End Sub
+Public Function ConvertToJSON(container As Object, encloseStringsInEscapedQuotes As Boolean) As String
 
+    Dim output$, cursorLocation&, isContainerJsonObject As Boolean, keyOrIndex() As Variant, iCount&, isValueString As Boolean, quote$
+    
+    quote = IIf(encloseStringsInEscapedQuotes, "\""", """")
+    
+    output = String(1000, " ")
+        
+    If Not TypeOf container Is Collection Then
+        isContainerJsonObject = True
+        keyOrIndex = container.keys
+    Else
+        ReDim keyOrIndex(1 To container.count)
+        For iCount = 1 To UBound(keyOrIndex)
+            keyOrIndex(iCount) = iCount
+        Next iCount
+    End If
+
+    If isContainerJsonObject Then
+        AddToString output, "{", cursorLocation
+    Else
+        AddToString output, "[", cursorLocation
+    End If
+    
+    With container
+
+        For iCount = LBound(keyOrIndex) To UBound(keyOrIndex)
+
+            If isContainerJsonObject Then
+                AddToString output, quote, cursorLocation
+                AddToString output, CStr(keyOrIndex(iCount)), cursorLocation, True
+                AddToString output, quote, cursorLocation
+                AddToString output, ":", cursorLocation
+            End If
+                
+            If IsObject(.Item(keyOrIndex(iCount))) Then
+                AddToString output, ConvertToJSON(.Item(keyOrIndex(iCount)), encloseStringsInEscapedQuotes), cursorLocation
+            Else
+                If VarType(.Item(keyOrIndex(iCount))) = vbString Then
+                    isValueString = True
+                Else
+                    isValueString = False
+                End If
+                
+                If isValueString Then AddToString output, quote, cursorLocation
+                AddToString output, .Item(keyOrIndex(iCount)), cursorLocation, isValueString
+                If isValueString Then AddToString output, quote, cursorLocation
+                
+            End If
+
+            If iCount <> UBound(keyOrIndex) Then
+                AddToString output, ",", cursorLocation
+            End If
+
+        Next iCount
+
+    End With
+    
+    If isContainerJsonObject Then
+        AddToString output, "}", cursorLocation
+    Else
+        AddToString output, "]", cursorLocation
+    End If
+    ConvertToJSON = Left$(output, cursorLocation)
+End Function
 Private Sub CreateObjectOnStack(stack As Collection, createJsonObject As Boolean)
 
     If createJsonObject Then
@@ -746,80 +818,6 @@ Private Sub AddParentToErrSource(e As ErrObject, parentName$)
     End With
 End Sub
 
-Public Sub Unit_Test()
-    Dim success As Boolean, json$
-    With Me
-        '.ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,{""apple"":22,""berry"":45}]}"
-        .ParseJsonString "{""ground\n\\\""beaver"":""tr\\ee"",""inner object"":[{""APP"":1,""Sun"":""Moon"",""Ocean"":""Beach""},[""a"",""b"",""c""],[0,1,2,[5,6,7,8],9,10]],""array"":[1,2,3,{""apple"":22,""berry"":45}]}"
-        '.ParseJsonString HttpGet("http://worldtimeapi.org/api/timezone/America/New_York", success)
-    End With
-End Sub
-Public Function ConvertToJSON(container As Object, encloseStringsInEscapedQuotes As Boolean) As String
-
-    Dim output$, cursorLocation&, isContainerJsonObject As Boolean, keyOrIndex() As Variant, iCount&, isValueString As Boolean, quote$
-    
-    quote = IIf(encloseStringsInEscapedQuotes, "\""", """")
-    
-    output = String(1000, " ")
-        
-    If Not TypeOf container Is Collection Then
-        isContainerJsonObject = True
-        keyOrIndex = container.keys
-    Else
-        ReDim keyOrIndex(1 To container.count)
-        For iCount = 1 To UBound(keyOrIndex)
-            keyOrIndex(iCount) = iCount
-        Next iCount
-    End If
-
-    If isContainerJsonObject Then
-        AddToString output, "{", cursorLocation
-    Else
-        AddToString output, "[", cursorLocation
-    End If
-    
-    With container
-
-        For iCount = LBound(keyOrIndex) To UBound(keyOrIndex)
-
-            If isContainerJsonObject Then
-                AddToString output, quote, cursorLocation
-                AddToString output, CStr(keyOrIndex(iCount)), cursorLocation, True
-                AddToString output, quote, cursorLocation
-                AddToString output, ":", cursorLocation
-            End If
-                
-            If IsObject(.Item(keyOrIndex(iCount))) Then
-                AddToString output, ConvertToJSON(.Item(keyOrIndex(iCount)), encloseStringsInEscapedQuotes), cursorLocation
-            Else
-                If VarType(.Item(keyOrIndex(iCount))) = vbString Then
-                    isValueString = True
-                Else
-                    isValueString = False
-                End If
-                
-                If isValueString Then AddToString output, quote, cursorLocation
-                AddToString output, .Item(keyOrIndex(iCount)), cursorLocation, isValueString
-                If isValueString Then AddToString output, quote, cursorLocation
-                
-            End If
-
-            If iCount <> UBound(keyOrIndex) Then
-                AddToString output, ",", cursorLocation
-            End If
-
-        Next iCount
-
-    End With
-    
-    If isContainerJsonObject Then
-        AddToString output, "}", cursorLocation
-    Else
-        AddToString output, "]", cursorLocation
-    End If
-    ConvertToJSON = Left$(output, cursorLocation)
-End Function
-
 Private Sub AddToString(json$, textToAdd$, cursor&, Optional processFurther As Boolean = False)
 
     Dim additionLength&
@@ -942,9 +940,9 @@ Private Function GetUTCDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
                     Case 1
                         utcHour = Left$(timeStamp, 2)
                     Case 3
-                        utcMin = Left$(timeStamp, 2)
+                        utcMin = Mid$(timeStamp, i, 2)
                     Case 5
-                        utcSecond = Left$(timeStamp, 2)
+                        utcSecond = Mid$(timeStamp, i, 2)
                 End Select
             End If
         Next i
