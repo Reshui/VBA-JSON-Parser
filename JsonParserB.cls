@@ -87,8 +87,8 @@ Private Function ParseJSON(ByRef json$) As Object
         CreateObjectOnStack heirarchyStack, createJsonObject:=isValueJsonObject
         Set jsonContainer = heirarchyStack(1)
         
-        AddValueToObject jsonContainer, isValueJsonObject, addingNumber:=True, numberToAdd:=jsonLength, keyForValue:=cursorLimit
-        AddValueToObject jsonContainer, isValueJsonObject, addingNumber:=True, numberToAdd:=jsonLength, keyForValue:=cursorLocationAfterCompletion
+        AddValueToObject jsonContainer, isValueJsonObject, addingCursorLimit:=True, numberToAdd:=jsonLength, keyForValue:=cursorLimit
+        AddValueToObject jsonContainer, isValueJsonObject, addingCursorLimit:=True, numberToAdd:=jsonLength, keyForValue:=cursorLocationAfterCompletion
         
         isContainerJsonObject = Not TypeOf jsonContainer Is Collection
         
@@ -128,9 +128,9 @@ Private Function ParseJSON(ByRef json$) As Object
 
                         isContainerJsonObject = Not TypeOf jsonContainer Is Collection
                         ' Add key to limit the cursor range for object.
-                        AddValueToObject jsonContainer, isContainerJsonObject, addingNumber:=True, numberToAdd:=valueEndIndex, keyForValue:=cursorLimit
+                        AddValueToObject jsonContainer, isContainerJsonObject, addingCursorLimit:=True, numberToAdd:=valueEndIndex, keyForValue:=cursorLimit
                         ' Index to update cursorLocation to once array or object has been completed.
-                        AddValueToObject jsonContainer, isContainerJsonObject, addingNumber:=True, numberToAdd:=nextCursorLocation, keyForValue:=cursorLocationAfterCompletion
+                        AddValueToObject jsonContainer, isContainerJsonObject, addingCursorLimit:=True, numberToAdd:=nextCursorLocation, keyForValue:=cursorLocationAfterCompletion
                         cursorLocation = valueStartIndex
                     Else
                         If isValueAvailable Then
@@ -351,17 +351,23 @@ PropagateError:
     PropagateError Err, "GetValueRangeAndKey"
 End Sub
 
-Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As Boolean, Optional value$, Optional isValueString As Boolean, Optional newChild As Object, Optional keyForValue$, Optional addingNumber As Boolean, Optional numberToAdd As Long)
+Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As Boolean, Optional value$, Optional isValueString As Boolean, Optional newChild As Object, Optional keyForValue$, Optional addingCursorLimit As Boolean, Optional numberToAdd As Long)
 
     On Error GoTo PropagateError
     
     If newChild Is Nothing Then
-        If addingNumber Then
-            ' This is just used for tracking byte locations.
+        If addingCursorLimit Then
+            ' This is just used for tracking byte locations. key is guaranteed
             If isContainerJsonObject Then
                 containerObject.Item(keyForValue) = numberToAdd
             Else
                 containerObject.Add numberToAdd, keyForValue
+            End If
+        ElseIf IsDate(value) Then
+            If isContainerJsonObject Then
+                containerObject.Item(keyForValue) = CDate(value)
+            Else
+                containerObject.Add CDate(value)
             End If
         ElseIf isValueString Then
             If isContainerJsonObject Then
