@@ -41,14 +41,18 @@ Private Const INDEX_OFFSET As Byte = 1
 Private Const RightCurly$ = "}", LeftCurly$ = "{", LeftSquare$ = "[", RightSquare$ = "]", DecimalChar$ = ".", _
 QuoteCharacter$ = """", BackslashCharacter$ = "\", SpaceCharacter$ = " ", ColonCharacter$ = ":", Comma$ = ",", BINARY_OFFSET As Byte = 2
 
+Private pConvertStampsToDate As Boolean
+
 Private SpecialCharactersA$(6)
 #Const DebugActive = False
 
-Public Function ParseJsonString(ByRef json$) As Object
+Public Function ParseJsonString(ByRef json$, Optional convertTimeStampsToDate As Boolean = False) As Object
+    pConvertStampsToDate = convertTimeStampsToDate
     Set ParseJsonString = ParseJSON(json)
 End Function
-Public Function ParseJsonBytes(ByRef jsonBytes() As Byte) As Object
+Public Function ParseJsonBytes(ByRef jsonBytes() As Byte, Optional convertTimeStampsToDate As Boolean = False) As Object
     'PreProcessData jsonBytes
+    pConvertStampsToDate = convertTimeStampsToDate
     Set ParseJsonBytes = ParseJSON(CStr(jsonBytes))
 End Function
 
@@ -355,6 +359,8 @@ Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As
 
     On Error GoTo PropagateError
     
+    Dim isoDate As Date, dateParseFailed As Boolean: dateParseFailed = True
+    
     If newChild Is Nothing Then
         If addingCursorLimit Then
             ' This is just used for tracking byte locations. key is guaranteed
@@ -363,17 +369,24 @@ Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As
             Else
                 containerObject.Add numberToAdd, keyForValue
             End If
-        ElseIf IsDate(value) Then
-            If isContainerJsonObject Then
-                containerObject.Item(keyForValue) = CDate(value)
-            Else
-                containerObject.Add CDate(value)
-            End If
         ElseIf isValueString Then
-            If isContainerJsonObject Then
-                containerObject.Item(keyForValue) = value
-            Else
-                containerObject.Add value
+            If pConvertStampsToDate Then
+                If TryParseIso8601Date(value, isoDate) Then
+                    If isContainerJsonObject Then
+                        containerObject.Item(keyForValue) = isoDate
+                    Else
+                        containerObject.Add isoDate
+                    End If
+                    dateParseFailed = False
+                End If
+            End If
+            
+            If dateParseFailed Then
+                If isContainerJsonObject Then
+                    containerObject.Item(keyForValue) = value
+                Else
+                    containerObject.Add value
+                End If
             End If
         ElseIf IsNumeric(value) Then
             If isContainerJsonObject Then
@@ -849,3 +862,128 @@ Private Sub AddToString(json$, textToAdd$, cursor&, Optional processFurther As B
     cursor = cursor + additionLength
 
 End Sub
+Private Function TryParseIso8601Date(iso$, returnedDate As Date) As Boolean
+
+    Dim dateParts$(), isoDate As Date, isoTime As Date, timeZone$, offsetIndex As Byte
+    
+    On Error GoTo ReturnFalse
+
+    dateParts = Split(iso, "T")
+    isoDate = GetUTCDateOrTime(dateParts(0), True)
+    If UBound(dateParts) = 1 Then isoTime = GetUTCDateOrTime(dateParts(1), False)
+
+    returnedDate = isoDate + isoTime
+    TryParseIso8601Date = True
+    Exit Function
+    
+ReturnFalse:
+    TryParseIso8601Date = False
+End Function
+Private Function GetUTCDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
+
+    Dim parts$(), isOrdinalDate As Boolean, isUTC As Boolean, _
+    isBasicFormat As Boolean, timeStampIsWeekDate As Boolean
+
+    Dim utcYear As Long, utcMonth, utcDay As Byte, utcHour As Byte, utcMin As Byte, _
+    utcSecond As Byte, dayOfYear As Integer, weekOfYear As Byte, dayOfWeek As Byte, timeZoneOffset As Date
+
+    If parseAsDate Then
+        parts = Split(timeStamp, "-")
+        isBasicFormat = UBound(parts) = 0
+        utcYear = Left$(timeStamp, 4)
+
+        Dim weekNumTokenIndex As Long
+        weekNumTokenIndex = InStr(1, timeStamp, "W")
+
+        ' YYYY-DDD or YYYYDDD
+        isOrdinalDate = ((UBound(parts) = 1 And Len(timeStamp) = 8) Or (Not timeStampIsWeekDate And isBasicFormat And Len(timeStamp) = 7))
+
+        If weekNumTokenIndex > 0 Then
+            timeStampIsWeekDate = True
+            weekOfYear = Mid$(timeStamp, weekNumTokenIndex + 1, 2)
+            If weekNumTokenIndex + 2 < Len(timeStamp) Then dayOfWeek = Right$(timeStamp, 1)
+
+            GetUTCDateOrTime = GetWeekDate(utcYear, weekOfYear, IIf(dayOfWeek > 0, dayOfWeek, 7))
+            
+        ElseIf isOrdinalDate Then
+            'YYYY-DDD or YYYYDDD
+            If isBasicFormat Then
+                dayOfYear = Right$(timeStamp, 3)
+            Else
+                dayOfYear = parts(1)
+            End If
+            GetUTCDateOrTime = DateAdd("d", dayOfYear, DateSerial(utcYear, 0, 0))
+        Else
+            If Not isBasicFormat Then
+                If UBound(parts) >= 1 Then utcMonth = parts(1)
+                If UBound(parts) >= 2 Then utcDay = parts(2)
+            Else
+                ' To do YYYYMM isn't valid.
+                If Len(timeStamp) >= 5 Then utcMonth = Mid$(timeStamp, 5, 2)
+                If Len(timeStamp) >= 7 Then utcDay = Right$(timeStamp, 2)
+            End If
+            GetUTCDateOrTime = DateSerial(utcYear, utcMonth, utcDay)
+        End If
+    Else
+        Dim offsetIndex&, i&
+        
+        isUTC = InStrB(1, timeStamp, "Z") > 0
+        timeStamp = Replace$(Split(timeStamp, "Z")(0), ":", vbNullString)
+        offsetIndex = InStr(1, timeStamp, "+")
+        If offsetIndex = 0 Then offsetIndex = InStr(1, timeStamp, "-")
+
+        For i = 1 To IIf(offsetIndex > 0, offsetIndex - 1, Len(timeStamp)) Step 2
+            
+            If Mid$(timeStamp, i, 1) = "." Then
+                ' Can't be represented with the Date Type. Consider either Currency or Double
+                Exit For
+            Else
+                Select Case i
+                    Case 1
+                        utcHour = Left$(timeStamp, 2)
+                    Case 3
+                        utcMin = Left$(timeStamp, 2)
+                    Case 5
+                        utcSecond = Left$(timeStamp, 2)
+                End Select
+            End If
+        Next i
+
+        If offsetIndex > 0 Then
+
+            Dim timeZoneText$, multiplier As Integer
+            
+            If Mid$(timeStamp, offsetIndex, 1) = "+" Then
+                multiplier = 1
+            Else
+                multiplier = -1
+            End If
+
+            timeZoneText = Mid$(timeStamp, offsetIndex + 1, 4)
+            timeZoneOffset = TimeSerial(Left$(timeStamp, 2), IIf(Len(timeStamp) = 4, Right$(timeStamp, 2), 0), 0)
+        End If
+        GetUTCDateOrTime = TimeSerial(utcHour, utcMin, utcSecond) + (timeZoneOffset * multiplier)
+    End If
+
+End Function
+Public Function GetWeekDate(calendarYear As Long, weekNumber As Byte, Optional isoDayId As Byte = 7) As Date
+
+    Dim dateBuilder As Date
+
+    dateBuilder = DateSerial(calendarYear, 1, 1)
+
+    Do Until Weekday(dateBuilder) = vbThursday
+        dateBuilder = DateAdd("d", 1, dateBuilder)
+    Loop
+    ' Now Loop until Previous Sunday
+    Do Until Weekday(dateBuilder) = vbSunday
+        dateBuilder = DateAdd("d", -1, dateBuilder)
+    Loop
+    dateBuilder = DateAdd("ww", weekNumber - 1, dateBuilder)
+    ' ISO labels Monday with a 1.
+    GetWeekDate = DateAdd("d", (isoDayId + 7) Mod 7, dateBuilder)
+
+End Function
+
+
+
