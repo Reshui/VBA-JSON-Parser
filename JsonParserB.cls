@@ -934,7 +934,7 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
         If Not isBasicFormat Then timeStamp = Replace$(timeStamp, "-", vbNullString)
         
         temp = Trim$(Left$(timeStamp, 4))
-        If IsTextValidNumber(temp, 4) Then
+        If Not IsTextValidNumber(temp, 4) Then
              Err.Raise 13, "GetDateOrTime", "Incorrect year format."
         Else
             utcYear = temp
@@ -949,7 +949,7 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
         If timeStampIsWeekDate Then
 
             temp = Trim$(Mid$(timeStamp, weekNumTokenIndex + 1, 2))
-            If IsTextValidNumber(temp, 2) Then
+            If Not IsTextValidNumber(temp, 2) Then
                 Err.Raise 13, "GetDateOrTime", "Incorrect week of year format."
             Else
                 weekOfYear = temp
@@ -961,8 +961,7 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
         ElseIf isOrdinalDate Then
             'YYYY-DDD or YYYYDDD
             temp = Trim$(Right$(timeStamp, 3))
-
-            If IsTextValidNumber(temp, 3) Then
+            If Not IsTextValidNumber(temp, 3) Then
                 Err.Raise 13, "GetDateOrTime", "Incorrect day of year format."
             Else
                 dayOfYear = temp
