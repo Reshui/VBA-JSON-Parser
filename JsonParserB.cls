@@ -43,17 +43,22 @@ QuoteCharacter$ = """", BackslashCharacter$ = "\", SpaceCharacter$ = " ", ColonC
 
 Private pConvertStampsToDate As Boolean
 Private pSpecialCharactersA$(6)
-
+Private pConvertDatesToUTC As Boolean
 #Const DebugActive = False
 
-Public Function ParseJsonString(ByRef json$, Optional convertTimeStampsToDate As Boolean = False) As Object
+Public Function ParseJsonString(ByRef json$, Optional convertTimeStampsToDate As Boolean = False, Optional convertDatesToUTC As Boolean = False) As Object
+    
     pConvertStampsToDate = convertTimeStampsToDate
+    pConvertDatesToUTC = convertDatesToUTC
     Set ParseJsonString = ParseJSON(json)
+    
 End Function
-Public Function ParseJsonBytes(ByRef jsonBytes() As Byte, Optional convertTimeStampsToDate As Boolean = False) As Object
+Public Function ParseJsonBytes(ByRef jsonBytes() As Byte, Optional convertTimeStampsToDate As Boolean = False, Optional convertDatesToUTC As Boolean = False) As Object
     'Warning bytes must be UTF-16
     pConvertStampsToDate = convertTimeStampsToDate
+    pConvertDatesToUTC = convertDatesToUTC
     Set ParseJsonBytes = ParseJSON(CStr(jsonBytes))
+    
 End Function
 
 Private Function ParseJSON(ByRef json$) As Object
@@ -986,18 +991,18 @@ Private Function GetUTCDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
             End If
         Next i
 
-        If offsetIndex > 0 Then
+        If offsetIndex > 0 And pConvertDatesToUTC Then
 
             Dim timeZoneText$, multiplier As Integer
             
             If Mid$(timeStamp, offsetIndex, 1) = "+" Then
-                multiplier = 1
-            Else
                 multiplier = -1
+            Else
+                multiplier = 1
             End If
 
             timeZoneText = Mid$(timeStamp, offsetIndex + 1, 4)
-            timeZoneOffset = TimeSerial(Left$(timeStamp, 2), IIf(Len(timeStamp) = 4, Right$(timeStamp, 2), 0), 0)
+            timeZoneOffset = TimeSerial(Left$(timeZoneText, 2), IIf(Len(timeZoneText) = 4, Right$(timeZoneText, 2), 0), 0)
         End If
         GetUTCDateOrTime = TimeSerial(utcHour, utcMin, utcSecond) + (timeZoneOffset * multiplier)
     End If
