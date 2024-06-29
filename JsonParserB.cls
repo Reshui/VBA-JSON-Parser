@@ -930,6 +930,7 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
     utcSecond As Byte, dayOfYear As Integer, weekOfYear As Byte, dayOfWeek As Byte, timeZoneOffset As Date
 
     If parseAsDate Then
+    
         isBasicFormat = InStrB(timeStamp, "-") = 0
         If Not isBasicFormat Then timeStamp = Replace$(timeStamp, "-", vbNullString)
         
@@ -943,6 +944,11 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
         Dim weekNumTokenIndex As Long
         weekNumTokenIndex = InStr(1, timeStamp, "W")
         timeStampIsWeekDate = weekNumTokenIndex > 0
+         
+        If timeStampIsWeekDate And weekNumTokenIndex <> 5 Then
+            Err.Raise 13, "GetDateOrTime", "Bad Format"
+        End If
+        
         ' YYYY-DDD or YYYYDDD
         isOrdinalDate = (Not timeStampIsWeekDate And Len(timeStamp) = 7)
         'Test if YYYYWww*
@@ -971,6 +977,12 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
             If Len(timeStamp) = 6 And isBasicFormat Then
                 Err.Raise 13, "GetDateOrTime", "YYYYMM is an invalid format. Use YYYY-MM"
             Else
+                
+                temp = Mid$(timeStamp, 5, Len(timeStamp) - 4)
+                If Not IsNumeric(temp) Or Len(temp) > 4 Then
+                    Err.Raise 13, "GetDateOrTime", "Bad format."
+                End If
+                
                 temp = Trim$(Mid$(timeStamp, 5, 2))
                 If IsTextValidNumber(temp, 2) Then
                     utcMonth = temp
