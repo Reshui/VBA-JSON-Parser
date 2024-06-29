@@ -901,8 +901,8 @@ Private Function TryParseIso8601Date(iso$, returnedDate As Date) As Boolean
     On Error GoTo ReturnFalse
 
     dateParts = Split(iso, "T")
-    isoDate = GetUTCDateOrTime(dateParts(0), True)
-    If UBound(dateParts) = 1 Then isoTime = GetUTCDateOrTime(dateParts(1), False)
+    isoDate = GetDateOrTime(dateParts(0), True)
+    If UBound(dateParts) = 1 Then isoTime = GetDateOrTime(dateParts(1), False)
 
     returnedDate = isoDate + isoTime
     TryParseIso8601Date = True
@@ -911,7 +911,7 @@ Private Function TryParseIso8601Date(iso$, returnedDate As Date) As Boolean
 ReturnFalse:
     TryParseIso8601Date = False
 End Function
-Private Function GetUTCDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
+Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
 '======================================================================================================================================
 ' Summary
 '       Attempts to parse [timeStamp] as an ISO-8601 date.
@@ -945,7 +945,7 @@ Private Function GetUTCDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
             weekOfYear = Mid$(timeStamp, weekNumTokenIndex + 1, 2)
             If weekNumTokenIndex + 2 < Len(timeStamp) Then dayOfWeek = Right$(timeStamp, 1)
 
-            GetUTCDateOrTime = GetWeekDate(utcYear, weekOfYear, IIf(dayOfWeek > 0, dayOfWeek, 7))
+            GetDateOrTime = GetWeekDate(utcYear, weekOfYear, IIf(dayOfWeek > 0, dayOfWeek, 7))
             
         ElseIf isOrdinalDate Then
             'YYYY-DDD or YYYYDDD
@@ -954,7 +954,7 @@ Private Function GetUTCDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
             Else
                 dayOfYear = parts(1)
             End If
-            GetUTCDateOrTime = DateAdd("d", dayOfYear, DateSerial(utcYear, 0, 0))
+            GetDateOrTime = DateAdd("d", dayOfYear, DateSerial(utcYear, 0, 0))
         Else
             If Not isBasicFormat Then
                 If UBound(parts) >= 1 Then utcMonth = parts(1)
@@ -964,7 +964,7 @@ Private Function GetUTCDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
                 If Len(timeStamp) >= 5 Then utcMonth = Mid$(timeStamp, 5, 2)
                 If Len(timeStamp) >= 7 Then utcDay = Right$(timeStamp, 2)
             End If
-            GetUTCDateOrTime = DateSerial(utcYear, utcMonth, utcDay)
+            GetDateOrTime = DateSerial(utcYear, utcMonth, utcDay)
         End If
     Else
         Dim offsetIndex&, i&
@@ -1004,7 +1004,7 @@ Private Function GetUTCDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
             timeZoneText = Mid$(timeStamp, offsetIndex + 1, 4)
             timeZoneOffset = TimeSerial(Left$(timeZoneText, 2), IIf(Len(timeZoneText) = 4, Right$(timeZoneText, 2), 0), 0)
         End If
-        GetUTCDateOrTime = TimeSerial(utcHour, utcMin, utcSecond) + (timeZoneOffset * multiplier)
+        GetDateOrTime = TimeSerial(utcHour, utcMin, utcSecond) + (timeZoneOffset * multiplier)
     End If
 
 End Function
