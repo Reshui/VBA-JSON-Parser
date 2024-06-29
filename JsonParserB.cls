@@ -42,8 +42,8 @@ Private Const RightCurly$ = "}", LeftCurly$ = "{", LeftSquare$ = "[", RightSquar
 QuoteCharacter$ = """", BackslashCharacter$ = "\", SpaceCharacter$ = " ", ColonCharacter$ = ":", Comma$ = ",", BINARY_OFFSET As Byte = 2
 
 Private pConvertStampsToDate As Boolean
+Private pSpecialCharactersA$(6)
 
-Private SpecialCharactersA$(6)
 #Const DebugActive = False
 
 Public Function ParseJsonString(ByRef json$, Optional convertTimeStampsToDate As Boolean = False) As Object
@@ -51,19 +51,24 @@ Public Function ParseJsonString(ByRef json$, Optional convertTimeStampsToDate As
     Set ParseJsonString = ParseJSON(json)
 End Function
 Public Function ParseJsonBytes(ByRef jsonBytes() As Byte, Optional convertTimeStampsToDate As Boolean = False) As Object
-    'PreProcessData jsonBytes
+    'Warning bytes must be UTF-16
     pConvertStampsToDate = convertTimeStampsToDate
     Set ParseJsonBytes = ParseJSON(CStr(jsonBytes))
 End Function
 
 Private Function ParseJSON(ByRef json$) As Object
-''====================================================================================================================================================================================
-'' Summary: Non-Recursive JSON parser.
-'' Parameters:
-''      [json] - JSON string to parse.
-'' Reference:
-''   https://www.json.org/json-en.html
-''====================================================================================================================================================================================
+'====================================================================================================================================================================================
+' Summary:
+'   Non-Recursive JSON parser.
+' Parameters:
+'      [json] - JSON string to parse.
+' Returns:
+'   Either a Collection or Dictionary
+' Reference:
+'   https://www.json.org/json-en.html
+' Note:
+'   If on MAC ensure you have downloaded the Dictionary class from https://github.com/VBA-tools/VBA-Dictionary
+'====================================================================================================================================================================================
     Dim value$, isValueJsonObject As Boolean, isValueJsonArray As Boolean, isContainerJsonObject As Boolean, isValueAvailable As Boolean
 
     Dim jsonLength&, keyForValue$, valueStartIndex&, valueEndIndex&, jsonContainer As Object, _
@@ -84,9 +89,9 @@ Private Function ParseJSON(ByRef json$) As Object
     
     If isValueJsonObject Or isValueJsonArray Then
             
-        SpecialCharactersA(0) = QuoteCharacter: SpecialCharactersA(1) = BackslashCharacter
-        SpecialCharactersA(2) = vbCr: SpecialCharactersA(3) = vbTab
-        SpecialCharactersA(4) = vbLf: SpecialCharactersA(5) = VBA.vbBack: SpecialCharactersA(6) = VBA.vbFormFeed
+        pSpecialCharactersA(0) = QuoteCharacter: pSpecialCharactersA(1) = BackslashCharacter
+        pSpecialCharactersA(2) = vbCr: pSpecialCharactersA(3) = vbTab
+        pSpecialCharactersA(4) = vbLf: pSpecialCharactersA(5) = VBA.vbBack: pSpecialCharactersA(6) = VBA.vbFormFeed
 
         CreateObjectOnStack heirarchyStack, createJsonObject:=isValueJsonObject
         Set jsonContainer = heirarchyStack(1)
@@ -207,21 +212,30 @@ Public Sub Unit_Test()
     End With
 End Sub
 Public Function ConvertToJSON(container As Object, encloseStringsInEscapedQuotes As Boolean) As String
-
+'=======================================================================================================================================
+' Summary:
+'   Converts a Collection or Dictionary to a Json string.
+' Parameters:
+'   [container] - Object to convert.
+'   [encloseStringsInEscapedQuotes] - True to enclose text in escaped quotes instead of unescaped quotes.
+'        Example: {\"hello\":1} instead of {"hello":1}
+'=======================================================================================================================================
     Dim output$, cursorLocation&, isContainerJsonObject As Boolean, keyOrIndex() As Variant, iCount&, isValueString As Boolean, quote$
     
     quote = IIf(encloseStringsInEscapedQuotes, "\""", """")
     
     output = String(1000, " ")
         
-    If Not TypeOf container Is Collection Then
+    If TypeName(container) = "Dictionary" Then
         isContainerJsonObject = True
         keyOrIndex = container.keys
-    Else
+    ElseIf TypeOf container Is Collection Then
         ReDim keyOrIndex(1 To container.count)
         For iCount = 1 To UBound(keyOrIndex)
             keyOrIndex(iCount) = iCount
         Next iCount
+    Else
+        Err.Raise 13, "ConvertToJSON", "Container must be either a Collection or Dictionary."
     End If
 
     If isContainerJsonObject Then
@@ -302,10 +316,9 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
     Dim maxIndexBinary&, nextCurlyCloseBinary&, nextCurlyOpenBinary&, previousCloseBinary&, tokenIndicator$(1), nextEnclosingTokenIndex&, escapeEnclosingArrayOrObject As Boolean
 
     On Error GoTo Propagate
-    ' Convert to binary location.
     currentIndexBinary = (cursorLocation * BINARY_OFFSET) - 1
     maxIndexBinary = (maxCursorLocation * BINARY_OFFSET) - 1
-    ' Start searching from at the index.
+    ' Search for tokens starting at currentIndexBinary + offset.
     nextCurlyOpenBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, LeftCurly)
     nextCurlyCloseBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, RightCurly)
     nextSquareOpenBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, LeftSquare)
@@ -362,7 +375,7 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
     End Select
     
     If InStrB(1, ",]}", Mid$(json, nextEnclosingTokenIndex, 1)) = 0 Then
-        Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid JSON format. Calculated token index doesn't reference a value delimiter: " & Mid$(json, nextEnclosingTokenIndex, 1)
+        Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid JSON format. Expected one of ',' or ']' or '}'. Calculated token index doesn't reference a value delimiter: " & Mid$(json, nextEnclosingTokenIndex, 1)
     End If
     
     GetNextEnclosingDelimiterLocation = nextEnclosingTokenIndex
@@ -518,9 +531,9 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
     groupedBackslashCount&, countOfBackslashToKeep&, specialCharactersInRange As Boolean, unescapedQuoteCount As Long
 
     ' Determine if there are any special characters in the range.
-    For iLoop = LBound(SpecialCharactersA) To UBound(SpecialCharactersA)
+    For iLoop = LBound(pSpecialCharactersA) To UBound(pSpecialCharactersA)
         ' If within bounds set specialCharactersInRange equal to true and exit the loop.
-        If IsValueInRange(InStrB((startIndex * BINARY_OFFSET) - 1, json, SpecialCharactersA(iLoop)), 1, (maximumAllowedIndex * BINARY_OFFSET) - 1) Then
+        If IsValueInRange(InStrB((startIndex * BINARY_OFFSET) - 1, json, pSpecialCharactersA(iLoop)), 1, (maximumAllowedIndex * BINARY_OFFSET) - 1) Then
             specialCharactersInRange = True: Exit For
         End If
     Next iLoop
@@ -537,10 +550,10 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
             ' Convert to binary.
             characterIndex = (characterIndex * BINARY_OFFSET) - 1 + BINARY_OFFSET
             ' Determine min special character index > 0.
-            For iLoop = LBound(SpecialCharactersA) To UBound(SpecialCharactersA)
+            For iLoop = LBound(pSpecialCharactersA) To UBound(pSpecialCharactersA)
                 'Use InstrB to determine the forward index of any special characters if characterIndex exceeds a previously stored value.
-                If minValues(iLoop) < characterIndex Then minValues(iLoop) = InStrB(characterIndex, json, SpecialCharactersA(iLoop))
-                If IsValueInRange(minValues(iLoop), 1, characterIndex - BINARY_OFFSET) Or iLoop = LBound(SpecialCharactersA) Then characterIndex = minValues(iLoop)
+                If minValues(iLoop) < characterIndex Then minValues(iLoop) = InStrB(characterIndex, json, pSpecialCharactersA(iLoop))
+                If IsValueInRange(minValues(iLoop), 1, characterIndex - BINARY_OFFSET) Or iLoop = LBound(pSpecialCharactersA) Then characterIndex = minValues(iLoop)
             Next iLoop
             ' Convert from binary with integer division.
             If characterIndex > 0 Then characterIndex = (characterIndex \ BINARY_OFFSET) + 1
@@ -819,7 +832,15 @@ Private Sub AddParentToErrSource(e As ErrObject, parentName$)
 End Sub
 
 Private Sub AddToString(json$, textToAdd$, cursor&, Optional processFurther As Boolean = False)
-
+'======================================================================================================================================
+' Summary
+'       Adds [textToAdd] to [json] starting at [cursor] + 1.
+' Parameters:
+'       [json] - Buffer that is added to.
+'       [textToAdd]    - Text that is added to [json]
+'       [cursor]    - Last index of previous addition.
+'       [processFurther] - Set to True if you want to encode strings.
+'======================================================================================================================================
     Dim additionLength&
     Const quote$ = """"
     
@@ -861,7 +882,15 @@ Private Sub AddToString(json$, textToAdd$, cursor&, Optional processFurther As B
 
 End Sub
 Private Function TryParseIso8601Date(iso$, returnedDate As Date) As Boolean
-
+'======================================================================================================================================
+' Summary
+'       Attempts to parse [iso] as an ISO-8601 date.
+' Parameters:
+'       [iso] - Text to parse.
+'       [returnDate]    - Variable that stores the parsed date from [iso] if successful.
+' Returns:
+'   True if a date was successfuly parsed; otherwise, False.
+'======================================================================================================================================
     Dim dateParts$(), isoDate As Date, isoTime As Date, timeZone$, offsetIndex As Byte
     
     On Error GoTo ReturnFalse
@@ -878,7 +907,17 @@ ReturnFalse:
     TryParseIso8601Date = False
 End Function
 Private Function GetUTCDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
-
+'======================================================================================================================================
+' Summary
+'       Attempts to parse [timeStamp] as an ISO-8601 date.
+' Parameters:
+'       [timeStamp] - TimeStamp to parse.
+'       [parseAsDate] - True if parsing a date; otherwise, false if parsing a time.
+' Returns:
+'   A parsed date.
+' Reference:
+'   https://en.wikipedia.org/wiki/ISO_8601
+'======================================================================================================================================
     Dim parts$(), isOrdinalDate As Boolean, isUTC As Boolean, _
     isBasicFormat As Boolean, timeStampIsWeekDate As Boolean
 
@@ -965,7 +1004,18 @@ Private Function GetUTCDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
 
 End Function
 Public Function GetWeekDate(calendarYear As Long, weekNumber As Byte, Optional isoDayId As Byte = 7) As Date
-
+'======================================================================================================================================
+' Summary
+'       Gets a date based on a wanted year,week of year and day of week.
+' Parameters:
+'       [calendarYear] - Year of date to return.
+'       [weekNumber]    - Week of [Year] to look for [isoDayId]. See Reference for determining week.
+'       [isoDayId]    - A number 1 to 7 with 1 representing Monday and 7 for Sunday.
+' Returns:
+'   Date Type.
+' Reference:
+'   https://en.wikipedia.org/wiki/ISO_week_date
+'======================================================================================================================================
     Dim dateBuilder As Date
 
     dateBuilder = DateSerial(calendarYear, 1, 1)
@@ -982,6 +1032,5 @@ Public Function GetWeekDate(calendarYear As Long, weekNumber As Byte, Optional i
     GetWeekDate = DateAdd("d", (isoDayId + 7) Mod 7, dateBuilder)
 
 End Function
-
 
 
