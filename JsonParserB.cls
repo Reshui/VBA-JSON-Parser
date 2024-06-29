@@ -930,11 +930,11 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
     utcSecond As Byte, dayOfYear As Integer, weekOfYear As Byte, dayOfWeek As Byte, timeZoneOffset As Date
 
     If parseAsDate Then
-        isBasicFormat = instrB(timeStamp,"-") = 0
-        if not isBasicFormat then timeStamp = Replace$(timeStamp, "-", vbNullString)        
+        isBasicFormat = InStrB(timeStamp, "-") = 0
+        If Not isBasicFormat Then timeStamp = Replace$(timeStamp, "-", vbNullString)
         
         temp = Trim$(Left$(timeStamp, 4))
-        If IsTextValidNumber(temp,4) Then
+        If IsTextValidNumber(temp, 4) Then
              Err.Raise 13, "GetDateOrTime", "Incorrect year format."
         Else
             utcYear = temp
@@ -942,14 +942,14 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
 
         Dim weekNumTokenIndex As Long
         weekNumTokenIndex = InStr(1, timeStamp, "W")
-        timeStampIsWeekDate =weekNumTokenIndex > 0
+        timeStampIsWeekDate = weekNumTokenIndex > 0
         ' YYYY-DDD or YYYYDDD
-        isOrdinalDate = (Not timeStampIsWeekDate And Len(timeStamp) = 7)        
-        'Test if YYYYWww*        
-        If imeStampIsWeekDate Then
+        isOrdinalDate = (Not timeStampIsWeekDate And Len(timeStamp) = 7)
+        'Test if YYYYWww*
+        If timeStampIsWeekDate Then
 
             temp = Trim$(Mid$(timeStamp, weekNumTokenIndex + 1, 2))
-            If IsTextValidNumber(temp,2) Then
+            If IsTextValidNumber(temp, 2) Then
                 Err.Raise 13, "GetDateOrTime", "Incorrect week of year format."
             Else
                 weekOfYear = temp
@@ -962,22 +962,22 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
             'YYYY-DDD or YYYYDDD
             temp = Trim$(Right$(timeStamp, 3))
 
-            If IsTextValidNumber(temp,3) Then
+            If IsTextValidNumber(temp, 3) Then
                 Err.Raise 13, "GetDateOrTime", "Incorrect day of year format."
             Else
                 dayOfYear = temp
             End If
             GetDateOrTime = DateAdd("d", dayOfYear, DateSerial(utcYear, 0, 0))
         Else
-            if len(timeStamp)= 6 and isBasicFormat then
+            If Len(timeStamp) = 6 And isBasicFormat Then
                 Err.Raise 13, "GetDateOrTime", "YYYYMM is an invalid format. Use YYYY-MM"
             Else
-                temp= Trim$(Mid$(timeStamp, 5, 2))
-                if IsTextValidNumber(temp,2) then 
+                temp = Trim$(Mid$(timeStamp, 5, 2))
+                If IsTextValidNumber(temp, 2) Then
                     utcMonth = temp
                     temp = Trim$(Right$(timeStamp, 2))
-                    if IsTextValidNumber(temp,2) then utcDay=temp
-                End if            
+                    If IsTextValidNumber(temp, 2) Then utcDay = temp
+                End If
             End If
             GetDateOrTime = DateSerial(utcYear, utcMonth, utcDay)
         End If
@@ -989,11 +989,11 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
         offsetIndex = InStr(1, timeStamp, "+")
         If offsetIndex = 0 Then offsetIndex = InStr(1, timeStamp, "-")
 
-        For i = 1 To IIf(offsetIndex > 0, offsetIndex - 1, Len(timeStamp)) Step 2            
+        For i = 1 To IIf(offsetIndex > 0, offsetIndex - 1, Len(timeStamp)) Step 2
             If Mid$(timeStamp, i, 1) = "." Then
                 ' Can't be represented with the Date Type. Consider either Currency or Double
                 Exit For
-            Else                
+            Else
                 Select Case i
                     Case 1
                         utcHour = Left$(timeStamp, 2)
@@ -1022,7 +1022,7 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
     End If
 
 End Function
-Private Function IsTextValidNumber(text$,wantedLength) as Boolean
+Private Function IsTextValidNumber(text$, wantedLength) As Boolean
 ' Trim text numbers before hand
     IsTextValidNumber = IsNumeric(text) And Len(text) = wantedLength
 End Function
@@ -1055,5 +1055,4 @@ Public Function GetWeekDate(calendarYear As Long, weekNumber As Byte, Optional i
     GetWeekDate = DateAdd("d", (isoDayId + 7) Mod 7, dateBuilder)
 
 End Function
-
 
