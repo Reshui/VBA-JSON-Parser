@@ -892,16 +892,16 @@ Private Function TryParseIso8601Date(iso$, returnedDate As Date) As Boolean
 '       Attempts to parse [iso] as an ISO-8601 date.
 ' Parameters:
 '       [iso] - Text to parse.
-'       [returnDate]    - Variable that stores the parsed date from [iso] if successful.
+'       [returnDate] - Variable that stores the parsed date from [iso] if successful.
 ' Returns:
 '   True if a date was successfuly parsed; otherwise, False.
 '======================================================================================================================================
-    Dim dateParts$(), isoDate As Date, isoTime As Date, timeZone$, offsetIndex As Byte
+    Dim dateParts$(), isoDate As Date, isoTime As Date
     
     On Error GoTo ReturnFalse
 
     dateParts = Split(iso, "T")
-    isoDate = GetDateOrTime(dateParts(0), True)
+    If Len(dateParts(0)) > 0 Then isoDate = GetDateOrTime(dateParts(0), True)
     If UBound(dateParts) = 1 Then isoTime = GetDateOrTime(dateParts(1), False)
 
     returnedDate = isoDate + isoTime
@@ -924,45 +924,60 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
 '   https://en.wikipedia.org/wiki/ISO_8601
 '======================================================================================================================================
     Dim parts$(), isOrdinalDate As Boolean, isUTC As Boolean, _
-    isBasicFormat As Boolean, timeStampIsWeekDate As Boolean
+    isBasicFormat As Boolean, timeStampIsWeekDate As Boolean, temp$
 
     Dim utcYear As Long, utcMonth, utcDay As Byte, utcHour As Byte, utcMin As Byte, _
     utcSecond As Byte, dayOfYear As Integer, weekOfYear As Byte, dayOfWeek As Byte, timeZoneOffset As Date
 
     If parseAsDate Then
-        parts = Split(timeStamp, "-")
-        isBasicFormat = UBound(parts) = 0
-        utcYear = Left$(timeStamp, 4)
+        isBasicFormat = instrB(timeStamp,"-") = 0
+        if not isBasicFormat then timeStamp = Replace$(timeStamp, "-", vbNullString)        
+        
+        temp = Trim$(Left$(timeStamp, 4))
+        If IsTextValidNumber(temp,4) Then
+             Err.Raise 13, "GetDateOrTime", "Incorrect year format."
+        Else
+            utcYear = temp
+        End If
 
         Dim weekNumTokenIndex As Long
         weekNumTokenIndex = InStr(1, timeStamp, "W")
-
+        timeStampIsWeekDate =weekNumTokenIndex > 0
         ' YYYY-DDD or YYYYDDD
-        isOrdinalDate = ((UBound(parts) = 1 And Len(timeStamp) = 8) Or (Not timeStampIsWeekDate And isBasicFormat And Len(timeStamp) = 7))
+        isOrdinalDate = (Not timeStampIsWeekDate And Len(timeStamp) = 7)        
+        'Test if YYYYWww*        
+        If imeStampIsWeekDate Then
 
-        If weekNumTokenIndex > 0 Then
-            timeStampIsWeekDate = True
-            weekOfYear = Mid$(timeStamp, weekNumTokenIndex + 1, 2)
+            temp = Trim$(Mid$(timeStamp, weekNumTokenIndex + 1, 2))
+            If IsTextValidNumber(temp,2) Then
+                Err.Raise 13, "GetDateOrTime", "Incorrect week of year format."
+            Else
+                weekOfYear = temp
+            End If
+            
             If weekNumTokenIndex + 2 < Len(timeStamp) Then dayOfWeek = Right$(timeStamp, 1)
-
             GetDateOrTime = GetWeekDate(utcYear, weekOfYear, IIf(dayOfWeek > 0, dayOfWeek, 7))
             
         ElseIf isOrdinalDate Then
             'YYYY-DDD or YYYYDDD
-            If isBasicFormat Then
-                dayOfYear = Right$(timeStamp, 3)
+            temp = Trim$(Right$(timeStamp, 3))
+
+            If IsTextValidNumber(temp,3) Then
+                Err.Raise 13, "GetDateOrTime", "Incorrect day of year format."
             Else
-                dayOfYear = parts(1)
+                dayOfYear = temp
             End If
             GetDateOrTime = DateAdd("d", dayOfYear, DateSerial(utcYear, 0, 0))
         Else
-            If Not isBasicFormat Then
-                If UBound(parts) >= 1 Then utcMonth = parts(1)
-                If UBound(parts) >= 2 Then utcDay = parts(2)
+            if len(timeStamp)= 6 and isBasicFormat then
+                Err.Raise 13, "GetDateOrTime", "YYYYMM is an invalid format. Use YYYY-MM"
             Else
-                ' To do YYYYMM isn't valid.
-                If Len(timeStamp) >= 5 Then utcMonth = Mid$(timeStamp, 5, 2)
-                If Len(timeStamp) >= 7 Then utcDay = Right$(timeStamp, 2)
+                temp= Trim$(Mid$(timeStamp, 5, 2))
+                if IsTextValidNumber(temp,2) then 
+                    utcMonth = temp
+                    temp = Trim$(Right$(timeStamp, 2))
+                    if IsTextValidNumber(temp,2) then utcDay=temp
+                End if            
             End If
             GetDateOrTime = DateSerial(utcYear, utcMonth, utcDay)
         End If
@@ -974,12 +989,11 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
         offsetIndex = InStr(1, timeStamp, "+")
         If offsetIndex = 0 Then offsetIndex = InStr(1, timeStamp, "-")
 
-        For i = 1 To IIf(offsetIndex > 0, offsetIndex - 1, Len(timeStamp)) Step 2
-            
+        For i = 1 To IIf(offsetIndex > 0, offsetIndex - 1, Len(timeStamp)) Step 2            
             If Mid$(timeStamp, i, 1) = "." Then
                 ' Can't be represented with the Date Type. Consider either Currency or Double
                 Exit For
-            Else
+            Else                
                 Select Case i
                     Case 1
                         utcHour = Left$(timeStamp, 2)
@@ -1007,6 +1021,10 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
         GetDateOrTime = TimeSerial(utcHour, utcMin, utcSecond) + (timeZoneOffset * multiplier)
     End If
 
+End Function
+Private Function IsTextValidNumber(text$,wantedLength) as Boolean
+' Trim text numbers before hand
+    IsTextValidNumber = IsNumeric(text) And Len(text) = wantedLength
 End Function
 Public Function GetWeekDate(calendarYear As Long, weekNumber As Byte, Optional isoDayId As Byte = 7) As Date
 '======================================================================================================================================
