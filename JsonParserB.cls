@@ -44,7 +44,7 @@ QuoteCharacter$ = """", BackslashCharacter$ = "\", SpaceCharacter$ = " ", ColonC
 Private pConvertStampsToDate As Boolean
 Private pSpecialCharactersA$(6)
 Private pConvertDatesToUTC As Boolean
-#Const DebugActive = False
+#Const DebugActive = True
 
 Public Function ParseJsonString(ByRef json$, Optional convertTimeStampsToDate As Boolean = False, Optional convertDatesToUTC As Boolean = False) As Object
     
@@ -131,9 +131,9 @@ Private Function ParseJSON(ByRef json$) As Object
                     End If
 
                     If isValueAvailable And (isValueJsonObject Or isValueJsonArray) Then
-                        
-                        isValueJsonObject = False: isValueJsonArray = False
+                                                
                         CreateObjectOnStack heirarchyStack, createJsonObject:=isValueJsonObject
+                        isValueJsonObject = False: isValueJsonArray = False
                         ' Create heirarchy by nesting child within parent.
                         With heirarchyStack
                             AddValueToObject jsonContainer, isContainerJsonObject, newChild:=.Item(.count), keyForValue:=keyForValue
@@ -504,7 +504,7 @@ Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As
         End If
     Else
         If isContainerJsonObject Then
-            containerObject.Item(keyForValue) = newChild
+            Set containerObject.Item(keyForValue) = newChild
         Else
             containerObject.Add newChild
         End If
@@ -817,7 +817,7 @@ Private Sub PropagateError(e As ErrObject, procedureName$, Optional moreDetails$
     With e
         AddParentToErrSource e, procedureName
         If LenB(moreDetails) > 0 Then .Description = moreDetails & vbNewLine & .Description
-        .Raise .Number, .source, .Description
+        .Raise .Number, .Source, .Description
     End With
     
 End Sub
@@ -826,12 +826,12 @@ Private Sub AddParentToErrSource(e As ErrObject, parentName$)
     Dim sourceParts$()
     Const delim$ = ": "
     With e
-        If InStrB(1, .source, delim) = 0 Then
-            .source = LeftSquare & .source & RightSquare & delim & parentName
+        If InStrB(1, .Source, delim) = 0 Then
+            .Source = LeftSquare & .Source & RightSquare & delim & parentName
         Else
-            sourceParts = Split(.source, delim, 2)
+            sourceParts = Split(.Source, delim, 2)
             sourceParts(1) = parentName & " > " & sourceParts(1)
-            .source = Join(sourceParts, delim)
+            .Source = Join(sourceParts, delim)
         End If
     End With
 End Sub
@@ -928,7 +928,9 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
 
     Dim utcYear As Long, utcMonth, utcDay As Byte, utcHour As Byte, utcMin As Byte, _
     utcSecond As Byte, dayOfYear As Integer, weekOfYear As Byte, dayOfWeek As Byte, timeZoneOffset As Date
-
+    
+    On Error GoTo Propagate
+    
     If parseAsDate Then
     
         isBasicFormat = InStrB(timeStamp, "-") = 0
@@ -936,7 +938,7 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
         
         temp = Trim$(Left$(timeStamp, 4))
         If Not IsTextValidNumber(temp, 4) Then
-             Err.Raise 13, "GetDateOrTime", "Incorrect year format."
+             Err.Raise 13, Description:="Incorrect year format."
         Else
             utcYear = temp
         End If
@@ -946,7 +948,7 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
         timeStampIsWeekDate = weekNumTokenIndex > 0
          
         If timeStampIsWeekDate And weekNumTokenIndex <> 5 Then
-            Err.Raise 13, "GetDateOrTime", "Bad Format"
+            Err.Raise 13, Description:="Bad Format"
         End If
         
         ' YYYY-DDD or YYYYDDD
@@ -956,7 +958,7 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
 
             temp = Trim$(Mid$(timeStamp, weekNumTokenIndex + 1, 2))
             If Not IsTextValidNumber(temp, 2) Then
-                Err.Raise 13, "GetDateOrTime", "Incorrect week of year format."
+                Err.Raise 13, Description:="Incorrect week of year format."
             Else
                 weekOfYear = temp
             End If
@@ -968,19 +970,19 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
             'YYYY-DDD or YYYYDDD
             temp = Trim$(Right$(timeStamp, 3))
             If Not IsTextValidNumber(temp, 3) Then
-                Err.Raise 13, "GetDateOrTime", "Incorrect day of year format."
+                Err.Raise 13, Description:="Incorrect day of year format."
             Else
                 dayOfYear = temp
             End If
             GetDateOrTime = DateAdd("d", dayOfYear, DateSerial(utcYear, 0, 0))
         Else
             If Len(timeStamp) = 6 And isBasicFormat Then
-                Err.Raise 13, "GetDateOrTime", "YYYYMM is an invalid format. Use YYYY-MM"
+                Err.Raise 13, Description:="YYYYMM is an invalid format. Use YYYY-MM"
             Else
                 
                 temp = Mid$(timeStamp, 5, Len(timeStamp) - 4)
                 If Not IsNumeric(temp) Or Len(temp) > 4 Then
-                    Err.Raise 13, "GetDateOrTime", "Bad format."
+                    Err.Raise 13, Description:="Bad format."
                 End If
                 
                 temp = Trim$(Mid$(timeStamp, 5, 2))
@@ -1031,7 +1033,10 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
         End If
         GetDateOrTime = TimeSerial(utcHour, utcMin, utcSecond) + (timeZoneOffset * multiplier)
     End If
-
+    
+    Exit Function
+Propagate:
+    PropagateError Err, "GetDateOrTime"
 End Function
 Private Function IsTextValidNumber(text$, wantedLength) As Boolean
 ' Trim text numbers before hand
