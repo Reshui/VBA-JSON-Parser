@@ -106,7 +106,7 @@ Private Function ParseJSON(ByRef json$) As Object
         
         isContainerJsonObject = Not TypeOf jsonContainer Is Collection
         
-        Do While cursorLocation < jsonContainer.Item(cursorLimit) Or heirarchyStack.count > 1
+        Do Until cursorLocation = jsonContainer.Item(cursorLimit) And heirarchyStack.count = 1
             
             If cursorLocation <> jsonContainer.Item(cursorLimit) Then
                 ' Finds the next token that encloses a value in conjunction with the current cursorLocation.
