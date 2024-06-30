@@ -107,7 +107,11 @@ Private Function ParseJSON(ByRef json$) As Object
         isContainerJsonObject = Not TypeOf jsonContainer Is Collection
         
         Do While cursorLocation < jsonLength
-            
+            ' For certain JSON strings when an object/array was closed on the previous loop then the
+            ' cursor may be set to the next end of an object/array but still have more text to parse.
+            ' and therefore cursorLocation = jsonContainer(cursorLocationAfterCompletion) = jsonContainer(cursorLimit)
+            ' Ex: }},{"hello":1}
+            '     >^
             If cursorLocation <> jsonContainer.Item(cursorLimit) Then
                 ' Finds the next token that encloses a value in conjunction with the current cursorLocation.
                 nextCursorLocation = GetNextEnclosingDelimiterLocation(json, cursorLocation, jsonContainer.Item(cursorLimit))
@@ -173,7 +177,7 @@ Private Function ParseJSON(ByRef json$) As Object
             
             With jsonContainer
                 ' If cursorLocation has exceeded jsonContainer Cursor Limit; remove it from the stack.
-                If cursorLocation >= .Item(cursorLimit) Or setContainerToParent Then
+                If cursorLocation >= .Item(cursorLimit) Then
                     cursorLocation = .Item(cursorLocationAfterCompletion)
                     With heirarchyStack
                         ' Only update if not Parent of all nodes.
