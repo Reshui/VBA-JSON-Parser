@@ -44,7 +44,7 @@ QuoteCharacter$ = """", BackslashCharacter$ = "\", SpaceCharacter$ = " ", ColonC
 Private pConvertStampsToDate As Boolean
 Private pSpecialCharactersA$(6)
 Private pConvertDatesToUTC As Boolean
-#Const DebugActive = True
+#Const DebugActive = False
 
 Public Function ParseJsonString(ByRef json$, Optional convertTimeStampsToDate As Boolean = False, Optional convertDatesToUTC As Boolean = False) As Object
     
@@ -106,74 +106,74 @@ Private Function ParseJSON(ByRef json$) As Object
         
         isContainerJsonObject = Not TypeOf jsonContainer Is Collection
         
-        Do While cursorLocation < jsonContainer.Item(cursorLimit)
-            ' Finds the next token that encloses a value in conjunction with the current cursorLocation.
-            nextCursorLocation = GetNextEnclosingDelimiterLocation(json, cursorLocation, jsonContainer.Item(cursorLimit))
- 
-            If nextCursorLocation > cursorLocation Then
+        Do While cursorLocation < jsonContainer.Item(cursorLimit) Or heirarchyStack.count > 1
             
-                If isContainerJsonObject Then
-                    ' Adjust by INDEX_OFFSET to ignore enclosing token delimiters.
-                    GetValueRangeAndKey json, cursorLocation + INDEX_OFFSET, nextCursorLocation - INDEX_OFFSET, valueStartIndex, valueEndIndex, isValueAvailable, keyForValue, isKeyAvailable
-                End If
-    
-                If Not isContainerJsonObject Or (isKeyAvailable And isContainerJsonObject) Then
-                                
-                    If Not isContainerJsonObject Then
-                        'Adjust by INDEX_OFFSET to exclude token delimiters.
-                        isValueAvailable = TryGetWhitespaceCleanedIndexes(json, cursorLocation + INDEX_OFFSET, nextCursorLocation - INDEX_OFFSET, valueStartIndex, valueEndIndex)
+            If cursorLocation <> jsonContainer.Item(cursorLimit) Then
+                ' Finds the next token that encloses a value in conjunction with the current cursorLocation.
+                nextCursorLocation = GetNextEnclosingDelimiterLocation(json, cursorLocation, jsonContainer.Item(cursorLimit))
+                
+                If nextCursorLocation > cursorLocation Then
+                    If isContainerJsonObject Then
+                        ' Adjust by INDEX_OFFSET to ignore enclosing token delimiters.
+                        GetValueRangeAndKey json, cursorLocation + INDEX_OFFSET, nextCursorLocation - INDEX_OFFSET, valueStartIndex, valueEndIndex, isValueAvailable, keyForValue, isKeyAvailable
                     End If
-                                        
-                    If isValueAvailable Then
-                        'If value is enclosed in {} or [] then parse a new object or array.
-                        isValueJsonObject = Mid$(json, valueStartIndex, valueEndIndex - valueStartIndex + 1) Like objectPattern
-                        If Not isValueJsonObject Then isValueJsonArray = Mid$(json, valueStartIndex, valueEndIndex - valueStartIndex + 1) Like arrayPattern
-                    End If
-
-                    If isValueAvailable And (isValueJsonObject Or isValueJsonArray) Then
-                                                
-                        CreateObjectOnStack heirarchyStack, createJsonObject:=isValueJsonObject
-                        isValueJsonObject = False: isValueJsonArray = False
-                        ' Create heirarchy by nesting child within parent.
-                        With heirarchyStack
-                            AddValueToObject jsonContainer, isContainerJsonObject, newChild:=.Item(.count), keyForValue:=keyForValue
-                            Set jsonContainer = .Item(.count)
-                        End With
-
-                        isContainerJsonObject = Not TypeOf jsonContainer Is Collection
-                        ' Add key to limit the cursor range for object.
-                        AddValueToObject jsonContainer, isContainerJsonObject, addingCursorLimit:=True, numberToAdd:=valueEndIndex, keyForValue:=cursorLimit
-                        ' Index to update cursorLocation to once array or object has been completed.
-                        AddValueToObject jsonContainer, isContainerJsonObject, addingCursorLimit:=True, numberToAdd:=nextCursorLocation, keyForValue:=cursorLocationAfterCompletion
-                        cursorLocation = valueStartIndex
-                    Else
-                        If isValueAvailable Then
-                            ' This function will remove a pair of unescaped quotes at the beginning and end of string values.
-                            ' Throws an error if any other unescaped quotes.
-                            value = ProcessCharactersInRange(json, valueStartIndex, valueEndIndex, isValidatedString)
-                        Else
-                            ' Code will convert this to null in AddValueToObject() below.
-                            value = vbNullString: isValidatedString = False
+        
+                    If Not isContainerJsonObject Or (isKeyAvailable And isContainerJsonObject) Then
+                                    
+                        If Not isContainerJsonObject Then
+                            'Adjust by INDEX_OFFSET to exclude token delimiters.
+                            isValueAvailable = TryGetWhitespaceCleanedIndexes(json, cursorLocation + INDEX_OFFSET, nextCursorLocation - INDEX_OFFSET, valueStartIndex, valueEndIndex)
                         End If
-                        AddValueToObject jsonContainer, isContainerJsonObject, value, isValueString:=isValidatedString, keyForValue:=keyForValue
-                        If isValueAvailable Then value = vbNullString
-                        cursorLocation = nextCursorLocation
+                                            
+                        If isValueAvailable Then
+                            'If value is enclosed in {} or [] then parse a new object or array.
+                            isValueJsonObject = Mid$(json, valueStartIndex, valueEndIndex - valueStartIndex + 1) Like objectPattern
+                            If Not isValueJsonObject Then isValueJsonArray = Mid$(json, valueStartIndex, valueEndIndex - valueStartIndex + 1) Like arrayPattern
+                        End If
+    
+                        If isValueAvailable And (isValueJsonObject Or isValueJsonArray) Then
+                            
+                            CreateObjectOnStack heirarchyStack, createJsonObject:=isValueJsonObject
+                            isValueJsonObject = False: isValueJsonArray = False
+                            ' Create heirarchy by nesting child within parent.
+                            With heirarchyStack
+                                AddValueToObject jsonContainer, isContainerJsonObject, newChild:=.Item(.count), keyForValue:=keyForValue
+                                Set jsonContainer = .Item(.count)
+                            End With
+    
+                            isContainerJsonObject = Not TypeOf jsonContainer Is Collection
+                            ' Add key to limit the cursor range for object.
+                            AddValueToObject jsonContainer, isContainerJsonObject, addingCursorLimit:=True, numberToAdd:=valueEndIndex, keyForValue:=cursorLimit
+                            ' Index to update cursorLocation to once array or object has been completed.
+                            AddValueToObject jsonContainer, isContainerJsonObject, addingCursorLimit:=True, numberToAdd:=nextCursorLocation, keyForValue:=cursorLocationAfterCompletion
+                            cursorLocation = valueStartIndex
+                        Else
+                            If isValueAvailable Then
+                                ' This function will remove a pair of unescaped quotes at the beginning and end of string values.
+                                ' Throws an error if any other unescaped quotes.
+                                value = ProcessCharactersInRange(json, valueStartIndex, valueEndIndex, isValidatedString)
+                            Else
+                                ' Code will convert this to null in AddValueToObject() below.
+                                value = vbNullString: isValidatedString = False
+                            End If
+                            AddValueToObject jsonContainer, isContainerJsonObject, value, isValueString:=isValidatedString, keyForValue:=keyForValue
+                            If isValueAvailable Then value = vbNullString
+                            cursorLocation = nextCursorLocation
+                        End If
+    
+                        If isKeyAvailable Then
+                            keyForValue = vbNullString: isKeyAvailable = False
+                        End If
+                    Else
+                        'Should already be a raised error in GetValueRangeAndKey().
+                        Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="JSON parser failed. Key unavailable for object."
                     End If
-
-                    If isKeyAvailable Then
-                        keyForValue = vbNullString: isKeyAvailable = False
-                    End If
-                Else
-                    'Should already be a raised error in GetValueRangeAndKey().
-                    Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="JSON parser failed. Key unavailable for object."
                 End If
-            Else
-                Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="JSON parser failed. Current cursorLocation >= next cursorLocation."
             End If
             
             With jsonContainer
                 ' If cursorLocation has exceeded jsonContainer Cursor Limit; remove it from the stack.
-                If cursorLocation >= .Item(cursorLimit) Then
+                If cursorLocation >= .Item(cursorLimit) Or setContainerToParent Then
                     cursorLocation = .Item(cursorLocationAfterCompletion)
                     With heirarchyStack
                         ' Only update if not Parent of all nodes.
@@ -199,7 +199,7 @@ Private Function ParseJSON(ByRef json$) As Object
     Else
         Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Bytes are wrong."
     End If
-    
+
     Exit Function
 CATCH_FAILURE:
     #If DebugActive Then
@@ -209,10 +209,11 @@ CATCH_FAILURE:
     #End If
 End Function
 Public Sub Unit_Test()
-    Dim success As Boolean, json$
+    Dim success As Boolean, json$, ob As Object
     With Me
         '.ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,{""apple"":22,""berry"":45}]}"
-        .ParseJsonString "{""ground\n\\\""beaver"":""tr\\ee"",""inner object"":[{""APP"":1,""Sun"":""Moon"",""Ocean"":""Beach""},[""a"",""b"",""c""],[0,1,2,[5,6,7,8],9,10]],""array"":[1,2,3,{""apple"":22,""berry"":45}]}"
+        '.ParseJsonString "{""ground\n\\\""beaver"":""tr\\ee"",""inner object"":[{""APP"":1,""Sun"":""Moon"",""Ocean"":""Beach""},[""a"",""b"",""c""],[0,1,2,[5,6,7,8],9,10]],""array"":[1,2,3,{""apple"":22,""berry"":45}]}"
+        Set ob = .ParseJsonString("{""L"":{""True"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""724 ms"",""Status"":0,""Combined"":""True"",""Id"":""Legacy""},""False"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""False"",""Id"":""Legacy""}},""D"":{""True"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""True"",""Id"":""Disaggregated""},""False"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""False"",""Id"":""Disaggregated""}},""T"":{""True"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""True"",""Id"":""TFF""},""False"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""False"",""Id"":""TFF""}}}", True)
         '.ParseJsonString HttpGet("http://worldtimeapi.org/api/timezone/America/New_York", success)
     End With
 End Sub
@@ -1038,9 +1039,9 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
 Propagate:
     PropagateError Err, "GetDateOrTime"
 End Function
-Private Function IsTextValidNumber(text$, wantedLength) As Boolean
+Private Function IsTextValidNumber(Text$, wantedLength) As Boolean
 ' Trim text numbers before hand
-    IsTextValidNumber = IsNumeric(text) And Len(text) = wantedLength
+    IsTextValidNumber = IsNumeric(Text) And Len(Text) = wantedLength
 End Function
 Public Function GetWeekDate(calendarYear As Long, weekNumber As Byte, Optional isoDayId As Byte = 7) As Date
 '======================================================================================================================================
