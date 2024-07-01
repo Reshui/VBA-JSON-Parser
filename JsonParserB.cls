@@ -46,19 +46,22 @@ Private pSpecialCharactersA$(6)
 Private pConvertDatesToUTC As Boolean
 #Const DebugActive = False
 
+Private Sub Class_Initialize()
+    pSpecialCharactersA(0) = QuoteCharacter: pSpecialCharactersA(1) = BackslashCharacter
+    pSpecialCharactersA(2) = vbCr: pSpecialCharactersA(3) = vbTab
+    pSpecialCharactersA(4) = vbLf: pSpecialCharactersA(5) = VBA.vbBack: pSpecialCharactersA(6) = VBA.vbFormFeed
+End Sub
+
 Public Function ParseJsonString(ByRef json$, Optional convertTimeStampsToDate As Boolean = False, Optional convertDatesToUTC As Boolean = False) As Object
-    
     pConvertStampsToDate = convertTimeStampsToDate
     pConvertDatesToUTC = convertDatesToUTC
     Set ParseJsonString = ParseJSON(json)
-    
 End Function
 Public Function ParseJsonBytes(ByRef jsonBytes() As Byte, Optional convertTimeStampsToDate As Boolean = False, Optional convertDatesToUTC As Boolean = False) As Object
     'Warning bytes must be UTF-16
     pConvertStampsToDate = convertTimeStampsToDate
     pConvertDatesToUTC = convertDatesToUTC
     Set ParseJsonBytes = ParseJSON(CStr(jsonBytes))
-    
 End Function
 
 Private Function ParseJSON(ByRef json$) As Object
@@ -93,17 +96,13 @@ Private Function ParseJSON(ByRef json$) As Object
     End If
     
     If isValueJsonObject Or isValueJsonArray Then
-            
-        pSpecialCharactersA(0) = QuoteCharacter: pSpecialCharactersA(1) = BackslashCharacter
-        pSpecialCharactersA(2) = vbCr: pSpecialCharactersA(3) = vbTab
-        pSpecialCharactersA(4) = vbLf: pSpecialCharactersA(5) = VBA.vbBack: pSpecialCharactersA(6) = VBA.vbFormFeed
 
         CreateObjectOnStack heirarchyStack, createJsonObject:=isValueJsonObject
         Set jsonContainer = heirarchyStack(1)
         
         AddValueToObject jsonContainer, isValueJsonObject, addingCursorLimit:=True, numberToAdd:=jsonLength, keyForValue:=cursorLimit
         AddValueToObject jsonContainer, isValueJsonObject, addingCursorLimit:=True, numberToAdd:=jsonLength, keyForValue:=cursorLocationAfterCompletion
-        
+
         isContainerJsonObject = Not TypeOf jsonContainer Is Collection
         
         Do While cursorLocation < jsonLength
@@ -193,6 +192,7 @@ Private Function ParseJSON(ByRef json$) As Object
                     End With
                 End If
             End With
+            
         Loop
         
         With jsonContainer
@@ -200,8 +200,9 @@ Private Function ParseJSON(ByRef json$) As Object
             .Remove cursorLocationAfterCompletion
         End With
         Set ParseJSON = jsonContainer
+        
     Else
-        Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Bytes are wrong."
+        Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Json isn't an object > {*} or array > [*]."
     End If
 
     Exit Function
@@ -249,9 +250,9 @@ Public Function ConvertToJSON(container As Object, encloseStringsInEscapedQuotes
     End If
 
     If isContainerJsonObject Then
-        AddToString output, "{", cursorLocation
+        OverwriteBufferSegment output, "{", cursorLocation
     Else
-        AddToString output, "[", cursorLocation
+        OverwriteBufferSegment output, "[", cursorLocation
     End If
     
     With container
@@ -259,14 +260,14 @@ Public Function ConvertToJSON(container As Object, encloseStringsInEscapedQuotes
         For iCount = LBound(keyOrIndex) To UBound(keyOrIndex)
 
             If isContainerJsonObject Then
-                AddToString output, quote, cursorLocation
-                AddToString output, CStr(keyOrIndex(iCount)), cursorLocation, True
-                AddToString output, quote, cursorLocation
-                AddToString output, ":", cursorLocation
+                OverwriteBufferSegment output, quote, cursorLocation
+                OverwriteBufferSegment output, CStr(keyOrIndex(iCount)), cursorLocation, True
+                OverwriteBufferSegment output, quote, cursorLocation
+                OverwriteBufferSegment output, ":", cursorLocation
             End If
                 
             If IsObject(.Item(keyOrIndex(iCount))) Then
-                AddToString output, ConvertToJSON(.Item(keyOrIndex(iCount)), encloseStringsInEscapedQuotes), cursorLocation
+                OverwriteBufferSegment output, ConvertToJSON(.Item(keyOrIndex(iCount)), encloseStringsInEscapedQuotes), cursorLocation
             Else
                 If VarType(.Item(keyOrIndex(iCount))) = vbString Then
                     isValueString = True
@@ -274,14 +275,14 @@ Public Function ConvertToJSON(container As Object, encloseStringsInEscapedQuotes
                     isValueString = False
                 End If
                 
-                If isValueString Then AddToString output, quote, cursorLocation
-                AddToString output, .Item(keyOrIndex(iCount)), cursorLocation, isValueString
-                If isValueString Then AddToString output, quote, cursorLocation
+                If isValueString Then OverwriteBufferSegment output, quote, cursorLocation
+                OverwriteBufferSegment output, .Item(keyOrIndex(iCount)), cursorLocation, isValueString
+                If isValueString Then OverwriteBufferSegment output, quote, cursorLocation
                 
             End If
 
             If iCount <> UBound(keyOrIndex) Then
-                AddToString output, ",", cursorLocation
+                OverwriteBufferSegment output, ",", cursorLocation
             End If
 
         Next iCount
@@ -289,9 +290,9 @@ Public Function ConvertToJSON(container As Object, encloseStringsInEscapedQuotes
     End With
     
     If isContainerJsonObject Then
-        AddToString output, "}", cursorLocation
+        OverwriteBufferSegment output, "}", cursorLocation
     Else
-        AddToString output, "]", cursorLocation
+        OverwriteBufferSegment output, "]", cursorLocation
     End If
     ConvertToJSON = Left$(output, cursorLocation)
 End Function
@@ -333,7 +334,7 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
     nextCurlyCloseBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, RightCurly)
     nextSquareOpenBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, LeftSquare)
     nextSquareCloseBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, RightSquare)
-    nextValidCommaTokenIndexBinary = BinaryCharacterIndexNotWithinQuotes(json, Comma, cursorLocation + INDEX_OFFSET, maxCursorLocation)
+    nextValidCommaTokenIndexBinary = SeekNextUnquotedBinaryCharacterIndex(json, Comma, cursorLocation + INDEX_OFFSET, maxCursorLocation)
 
     If nextValidCommaTokenIndexBinary > 0 Then nextEnclosingTokenIndex = (nextValidCommaTokenIndexBinary \ BINARY_OFFSET) + 1
 
@@ -343,11 +344,11 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
         ' If nextValidCommaTokenIndexBinary is greater than that byte,
         ' then determine if the Comma is encapsulated. If it is, then find the next Comma that isn't encapsulated to find the end of the value.
         '======================================================================================================================================
-        If IsValueInRange(nextCurlyOpenBinary, currentIndexBinary + BINARY_OFFSET, nextValidCommaTokenIndexBinary - BINARY_OFFSET) And (nextCurlyOpenBinary < nextSquareOpenBinary Or nextSquareOpenBinary = 0) Then
+        If IsValueInRange(nextCurlyOpenBinary, currentIndexBinary + BINARY_OFFSET, nextValidCommaTokenIndexBinary - BINARY_OFFSET, True) And (nextCurlyOpenBinary < nextSquareOpenBinary Or nextSquareOpenBinary = 0) Then
             tokenIndicator(0) = LeftCurly: tokenIndicator(1) = RightCurly
             nextOpenBinary = nextCurlyOpenBinary: nextCloseBinary = nextCurlyCloseBinary
             escapeEnclosingArrayOrObject = True
-        ElseIf IsValueInRange(nextSquareOpenBinary, currentIndexBinary + BINARY_OFFSET, nextValidCommaTokenIndexBinary - BINARY_OFFSET) And (nextSquareOpenBinary < nextCurlyOpenBinary Or nextCurlyOpenBinary = 0) Then
+        ElseIf IsValueInRange(nextSquareOpenBinary, currentIndexBinary + BINARY_OFFSET, nextValidCommaTokenIndexBinary - BINARY_OFFSET, True) And (nextSquareOpenBinary < nextCurlyOpenBinary Or nextCurlyOpenBinary = 0) Then
             tokenIndicator(0) = LeftSquare: tokenIndicator(1) = RightSquare
             nextOpenBinary = nextSquareOpenBinary: nextCloseBinary = nextSquareCloseBinary
             escapeEnclosingArrayOrObject = True
@@ -365,12 +366,12 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
 
             If previousCloseBinary < maxIndexBinary Then
                 ' Find MIN not equal to 0 of the following.
-                nextEnclosingTokenIndex = BinaryCharacterIndexNotWithinQuotes(json, Comma, (previousCloseBinary \ BINARY_OFFSET) + 1, maxCursorLocation)
+                nextEnclosingTokenIndex = SeekNextUnquotedBinaryCharacterIndex(json, Comma, (previousCloseBinary \ BINARY_OFFSET) + 1, maxCursorLocation)
                 minValues(0) = InStrB(previousCloseBinary + BINARY_OFFSET, json, RightCurly)
                 minValues(1) = InStrB(previousCloseBinary + BINARY_OFFSET, json, RightSquare)
                 
                 For nextCloseBinary = 0 To 1
-                    If IsValueInRange(minValues(nextCloseBinary), 1, nextEnclosingTokenIndex) Or nextEnclosingTokenIndex <= 0 Then nextEnclosingTokenIndex = minValues(nextCloseBinary)
+                    If IsValueInRange(minValues(nextCloseBinary), 1, nextEnclosingTokenIndex, True) Or nextEnclosingTokenIndex <= 0 Then nextEnclosingTokenIndex = minValues(nextCloseBinary)
                 Next nextCloseBinary
                 If nextEnclosingTokenIndex > 0 Then nextEnclosingTokenIndex = (nextEnclosingTokenIndex \ BINARY_OFFSET) + 1
             Else
@@ -399,9 +400,13 @@ Propagate:
 
 End Function
 
-Private Function IsValueInRange(numberToCheck&, lowerBound&, upperBound&) As Boolean
+Private Function IsValueInRange(numberToCheck&, lowerBound&, upperBound&, inclusiveUpperBound As Boolean) As Boolean
 'Summary Checks if numberToCheck is contained within a given range.
-    IsValueInRange = numberToCheck >= lowerBound And numberToCheck <= upperBound
+    If inclusiveUpperBound Then
+        IsValueInRange = numberToCheck >= lowerBound And numberToCheck <= upperBound
+    Else
+        IsValueInRange = numberToCheck >= lowerBound And numberToCheck < upperBound
+    End If
 End Function
 
 Private Sub GetValueRangeAndKey(ByRef json$, ByRef minimumIndex&, ByRef maxSearchIndex&, ByRef valueStartLocation&, ByRef valueEndLocation&, ByRef isValueAvailable As Boolean, ByRef keyForValue$, ByRef isKeyAvailalble As Boolean)
@@ -419,7 +424,7 @@ Private Sub GetValueRangeAndKey(ByRef json$, ByRef minimumIndex&, ByRef maxSearc
         ' Does key start with a qukote?
         If Mid$(json, keyStartLocation, 1) = QuoteCharacter Then
 
-            keyValueDelimiterIndex = (BinaryCharacterIndexNotWithinQuotes(json, ColonCharacter, keyStartLocation, valueEndLocation) \ BINARY_OFFSET) + 1
+            keyValueDelimiterIndex = (SeekNextUnquotedBinaryCharacterIndex(json, ColonCharacter, keyStartLocation, valueEndLocation) \ BINARY_OFFSET) + 1
             ' Is there a ColonCharacter outside of quotes?
             If keyValueDelimiterIndex > 0 Then
                 ' Find boundaries of key using location of key-value delimiter.
@@ -543,7 +548,7 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
     ' Determine if there are any special characters in the range.
     For iLoop = LBound(pSpecialCharactersA) To UBound(pSpecialCharactersA)
         ' If within bounds set specialCharactersInRange equal to true and exit the loop.
-        If IsValueInRange(InStrB((startIndex * BINARY_OFFSET) - 1, json, pSpecialCharactersA(iLoop)), 1, (maximumAllowedIndex * BINARY_OFFSET) - 1) Then
+        If IsValueInRange(InStrB((startIndex * BINARY_OFFSET) - 1, json, pSpecialCharactersA(iLoop)), 1, (maximumAllowedIndex * BINARY_OFFSET) - 1, True) Then
             specialCharactersInRange = True: Exit For
         End If
     Next iLoop
@@ -563,7 +568,7 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
             For iLoop = LBound(pSpecialCharactersA) To UBound(pSpecialCharactersA)
                 'Use InstrB to determine the forward index of any special characters if characterIndex exceeds a previously stored value.
                 If minValues(iLoop) < characterIndex Then minValues(iLoop) = InStrB(characterIndex, json, pSpecialCharactersA(iLoop))
-                If IsValueInRange(minValues(iLoop), 1, characterIndex - BINARY_OFFSET) Or iLoop = LBound(pSpecialCharactersA) Then characterIndex = minValues(iLoop)
+                If IsValueInRange(minValues(iLoop), 1, characterIndex - BINARY_OFFSET, True) Or iLoop = LBound(pSpecialCharactersA) Then characterIndex = minValues(iLoop)
             Next iLoop
             ' Convert from binary with integer division.
             If characterIndex > 0 Then characterIndex = (characterIndex \ BINARY_OFFSET) + 1
@@ -748,7 +753,7 @@ CatchRight:
     Resume NextLoop
 End Function
 
-Private Function BinaryCharacterIndexNotWithinQuotes(ByRef json$, ByRef character$, ByRef startIndex&, ByRef maxSearchIndex&) As Long
+Private Function SeekNextUnquotedBinaryCharacterIndex(ByRef json$, ByRef character$, ByRef startIndex&, ByRef maxSearchIndex&) As Long
 '======================================================================================================================================
 ' Summary
 '       Searches for the next [character] not contained within quotes and returns its binary index
@@ -805,14 +810,14 @@ Private Function BinaryCharacterIndexNotWithinQuotes(ByRef json$, ByRef characte
     Loop Until (characterIndexBinary < leftQuoteIndexBinary And Not updateCharacterlocation) Or characterIndexBinary = 0 Or (characterIndexBinary > maxIndexBinary) Or leftQuoteIndexBinary = 0 Or (loopCount = 1 And characterIndexBinary < leftQuoteIndexBinary)
     
     If characterIndexBinary > maxIndexBinary Or updateCharacterlocation Then
-        BinaryCharacterIndexNotWithinQuotes = 0
+        SeekNextUnquotedBinaryCharacterIndex = 0
     ElseIf Not updateCharacterlocation Then
-        BinaryCharacterIndexNotWithinQuotes = characterIndexBinary
+        SeekNextUnquotedBinaryCharacterIndex = characterIndexBinary
     End If
     
     Exit Function
 Return_Default:
-    BinaryCharacterIndexNotWithinQuotes = 0
+    SeekNextUnquotedBinaryCharacterIndex = 0
 End Function
 
 Private Sub PropagateError(e As ErrObject, procedureName$, Optional moreDetails$ = vbNullString)
@@ -841,13 +846,13 @@ Private Sub AddParentToErrSource(e As ErrObject, parentName$)
     End With
 End Sub
 
-Private Sub AddToString(json$, textToAdd$, cursor&, Optional processFurther As Boolean = False)
+Private Sub OverwriteBufferSegment(buffer$, textToAdd$, cursor&, Optional processFurther As Boolean = False)
 '======================================================================================================================================
 ' Summary
-'       Adds [textToAdd] to [json] starting at [cursor] + 1.
+'       Adds [textToAdd] to [buffer] starting at [cursor] + 1.
 ' Parameters:
-'       [json] - Buffer that is added to.
-'       [textToAdd]    - Text that is added to [json]
+'       [buffer] - Buffer that is added to.
+'       [textToAdd]    - Text that is added to [buffer]
 '       [cursor]    - Last index of previous addition.
 '       [processFurther] - Set to True if you want to encode strings.
 '======================================================================================================================================
@@ -883,11 +888,11 @@ Private Sub AddToString(json$, textToAdd$, cursor&, Optional processFurther As B
 
     additionLength = Len(textToAdd)
     ' Increase buffer until it can contain textToAdd.
-    Do Until cursor + additionLength + 1 <= Len(json)
-        json = json & String(1000, " ")
+    Do Until cursor + additionLength + 1 <= Len(buffer)
+        buffer = buffer & String(1000, " ")
     Loop
     
-    Mid$(json, cursor + 1, additionLength) = textToAdd
+    Mid$(buffer, cursor + 1, additionLength) = textToAdd
     cursor = cursor + additionLength
 
 End Sub
@@ -931,8 +936,8 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
     Dim parts$(), isOrdinalDate As Boolean, isUTC As Boolean, _
     isBasicFormat As Boolean, timeStampIsWeekDate As Boolean, temp$
 
-    Dim utcYear As Long, utcMonth, utcDay As Byte, utcHour As Byte, utcMin As Byte, _
-    utcSecond As Byte, dayOfYear As Integer, weekOfYear As Byte, dayOfWeek As Byte, timeZoneOffset As Date
+    Dim utcYear As Long, utcMonth As Long, utcDay As Long, utcHour As Long, utcMinute As Long, _
+    utcSecond As Long, dayOfYear As Long, weekOfYear As Long, dayOfWeek As Long, timeZoneOffset As Date
     
     On Error GoTo Propagate
     
@@ -942,10 +947,9 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
         If Not isBasicFormat Then timeStamp = Replace$(timeStamp, "-", vbNullString)
         
         temp = Trim$(Left$(timeStamp, 4))
-        If Not IsTextValidNumber(temp, 4) Then
+        
+        If Not IsTextValidNumber(temp, 4, False, True, utcYear) Then
              Err.Raise 13, Description:="Incorrect year format."
-        Else
-            utcYear = temp
         End If
 
         Dim weekNumTokenIndex As Long
@@ -962,10 +966,9 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
         If timeStampIsWeekDate Then
 
             temp = Trim$(Mid$(timeStamp, weekNumTokenIndex + 1, 2))
-            If Not IsTextValidNumber(temp, 2) Then
+
+            If Not IsTextValidNumber(temp, 2, False, True, weekOfYear) Then
                 Err.Raise 13, Description:="Incorrect week of year format."
-            Else
-                weekOfYear = temp
             End If
             
             If weekNumTokenIndex + 2 < Len(timeStamp) Then dayOfWeek = Right$(timeStamp, 1)
@@ -974,10 +977,9 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
         ElseIf isOrdinalDate Then
             'YYYY-DDD or YYYYDDD
             temp = Trim$(Right$(timeStamp, 3))
-            If Not IsTextValidNumber(temp, 3) Then
+
+            If Not IsTextValidNumber(temp, 3, False, True, dayOfYear) Then
                 Err.Raise 13, Description:="Incorrect day of year format."
-            Else
-                dayOfYear = temp
             End If
             GetDateOrTime = DateAdd("d", dayOfYear, DateSerial(utcYear, 0, 0))
         Else
@@ -991,10 +993,9 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
                 End If
                 
                 temp = Trim$(Mid$(timeStamp, 5, 2))
-                If IsTextValidNumber(temp, 2) Then
-                    utcMonth = temp
+                If IsTextValidNumber(temp, 2, False, True, utcMonth) Then
                     temp = Trim$(Right$(timeStamp, 2))
-                    If IsTextValidNumber(temp, 2) Then utcDay = temp
+                    Call IsTextValidNumber(temp, 2, False, True, utcDay)
                 End If
             End If
             GetDateOrTime = DateSerial(utcYear, utcMonth, utcDay)
@@ -1014,11 +1015,17 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
             Else
                 Select Case i
                     Case 1
-                        utcHour = Left$(timeStamp, 2)
+                        If Not IsTextValidNumber(Left$(timeStamp, 2), 2, False, True, utcHour) Then
+                            Err.Raise 13, Description:="Bad Format"
+                        End If
                     Case 3
-                        utcMin = Mid$(timeStamp, i, 2)
+                        If Not IsTextValidNumber(Mid$(timeStamp, i, 2), 2, False, True, utcMinute) Then
+                            Err.Raise 13, Description:="Bad Format"
+                        End If
                     Case 5
-                        utcSecond = Mid$(timeStamp, i, 2)
+                        If Not IsTextValidNumber(Mid$(timeStamp, i, 2), 2, False, True, utcSecond) Then
+                            Err.Raise 13, Description:="Bad Format"
+                        End If
                 End Select
             End If
         Next i
@@ -1036,18 +1043,24 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
             timeZoneText = Mid$(timeStamp, offsetIndex + 1, 4)
             timeZoneOffset = TimeSerial(Left$(timeZoneText, 2), IIf(Len(timeZoneText) = 4, Right$(timeZoneText, 2), 0), 0)
         End If
-        GetDateOrTime = TimeSerial(utcHour, utcMin, utcSecond) + (timeZoneOffset * multiplier)
+        GetDateOrTime = TimeSerial(utcHour, utcMinute, utcSecond) + (timeZoneOffset * multiplier)
     End If
     
     Exit Function
 Propagate:
     PropagateError Err, "GetDateOrTime"
 End Function
-Private Function IsTextValidNumber(Text$, wantedLength) As Boolean
-' Trim text numbers before hand
-    IsTextValidNumber = IsNumeric(Text) And Len(Text) = wantedLength
+Private Function IsTextValidNumber(queriedText$, wantedLength&, ensureNumberLength As Boolean, ensureTextLength As Boolean, ByRef returnedNumber As Long) As Boolean
+    ' Trim text beforehand.
+    If ensureTextLength And IsNumeric(queriedText) And Len(queriedText) = wantedLength Then
+        returnedNumber = queriedText
+        IsTextValidNumber = True
+    ElseIf ensureNumberLength And IsNumeric(queriedText) Then
+        returnedNumber = queriedText
+        IsTextValidNumber = IsValueInRange(Abs(returnedNumber) / (10 ^ wantedLength), 0, 1, False) And (Abs(returnedNumber) / (10 ^ (wantedLength - 1))) >= 1
+    End If
 End Function
-Public Function GetWeekDate(calendarYear As Long, weekNumber As Byte, Optional isoDayId As Byte = 7) As Date
+Public Function GetWeekDate(calendarYear As Long, weekNumber&, Optional isoDayId As Byte = 7) As Date
 '======================================================================================================================================
 ' Summary
 '       Gets a date based on a wanted year,week of year and day of week.
@@ -1076,4 +1089,3 @@ Public Function GetWeekDate(calendarYear As Long, weekNumber As Byte, Optional i
     GetWeekDate = DateAdd("d", (isoDayId + 7) Mod 7, dateBuilder)
 
 End Function
-
