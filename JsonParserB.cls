@@ -219,6 +219,8 @@ Public Sub Unit_Test()
         '.ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,{""apple"":22,""berry"":45}]}"
         '.ParseJsonString "{""ground\n\\\""beaver"":""tr\\ee"",""inner object"":[{""APP"":1,""Sun"":""Moon"",""Ocean"":""Beach""},[""a"",""b"",""c""],[0,1,2,[5,6,7,8],9,10]],""array"":[1,2,3,{""apple"":22,""berry"":45}]}"
         Set ob = .ParseJsonString("{""L"":{""True"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""724 ms"",""Status"":0,""Combined"":""True"",""Id"":""Legacy""},""False"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""False"",""Id"":""Legacy""}},""D"":{""True"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""True"",""Id"":""Disaggregated""},""False"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""False"",""Id"":""Disaggregated""}},""T"":{""True"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""True"",""Id"":""TFF""},""False"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""False"",""Id"":""TFF""}}}", True)
+        Debug.Print Serialize(ob, False, True)
+        
         '.ParseJsonString HttpGet("http://worldtimeapi.org/api/timezone/America/New_York", success)
     End With
 End Sub
@@ -232,7 +234,7 @@ Public Function Serialize(container As Object, encloseStringsInEscapedQuotes As 
 '        Example: {\"hello\":1} instead of {"hello":1}
 '=======================================================================================================================================
     Dim output$, cursorLocation&, isContainerJsonObject As Boolean, keyOrIndex() As Variant, _
-    iCount&, isValueString As Boolean, variableQuote$, currentIndent&, whitespaceL1$, whitespaceL2$
+    iCount&, isValueString As Boolean, variableQuote$, currentIndent&, whitespaceL1$, whitespaceL2$, isValueDate As Boolean
     
     variableQuote = IIf(encloseStringsInEscapedQuotes, "\""", """")
 
@@ -251,49 +253,60 @@ Public Function Serialize(container As Object, encloseStringsInEscapedQuotes As 
     End If
     
     If prettyPrint Then
-        If indentLevel <> 0 Then
-            whitespaceL1 = String$(indentLevel, vbTab)
-            'OverwriteBufferSegment output, whitespaceL1, cursorLocation
-        End If
+        If indentLevel <> 0 Then whitespaceL1 = String$(indentLevel, vbTab)
         whitespaceL2 = String$(indentLevel + 1, vbTab)
     End If
-
+    
     If isContainerJsonObject Then
+        'If indentLevel <> 0 Then OverwriteBufferSegment output, whitespaceL1, cursorLocation
         OverwriteBufferSegment output, LeftCurly, cursorLocation
+        OverwriteBufferSegment output, vbNewLine, cursorLocation
     Else
         OverwriteBufferSegment output, LeftSquare, cursorLocation
     End If
-    
-    If prettyPrint Then
-        OverwriteBufferSegment output, vbNewLine, cursorLocation
-    End If
-    
+           
     With container
         For iCount = LBound(keyOrIndex) To UBound(keyOrIndex)
-        
-            If prettyPrint Then OverwriteBufferSegment output, whitespaceL2, cursorLocation
             
             If isContainerJsonObject Then
+            
+                If prettyPrint Then OverwriteBufferSegment output, whitespaceL2, cursorLocation
+                
                 OverwriteBufferSegment output, variableQuote, cursorLocation
                 OverwriteBufferSegment output, CStr(keyOrIndex(iCount)), cursorLocation, True
                 OverwriteBufferSegment output, variableQuote, cursorLocation
                 OverwriteBufferSegment output, ColonCharacter, cursorLocation
+                
             End If
                 
             If IsObject(.Item(keyOrIndex(iCount))) Then
-                OverwriteBufferSegment output, Serialize(.Item(keyOrIndex(iCount)), encloseStringsInEscapedQuotes, prettyPrint, indentLevel + 1), cursorLocation
-            Else
-                isValueString = VarType(.Item(keyOrIndex(iCount))) = vbString
                 
+                If Not isContainerJsonObject And prettyPrint Then
+                    OverwriteBufferSegment output, vbNewLine, cursorLocation
+                End If
+                OverwriteBufferSegment output, Serialize(.Item(keyOrIndex(iCount)), encloseStringsInEscapedQuotes, prettyPrint, indentLevel + 1), cursorLocation
+            
+            Else
+            
+                isValueDate = IsDate(.Item(keyOrIndex(iCount)))
+                
+                If isValueDate Then
+                    isValueString = True
+                Else
+                    isValueString = VarType(.Item(keyOrIndex(iCount))) = vbString
+                End If
+                           
                 If isValueString Then OverwriteBufferSegment output, variableQuote, cursorLocation
-                OverwriteBufferSegment output, .Item(keyOrIndex(iCount)), cursorLocation, isValueString
+                OverwriteBufferSegment output, IIf(isValueDate, Format$(.Item(keyOrIndex(iCount)), "yyyy-mm-ddThh:mm:ss"), .Item(keyOrIndex(iCount))), cursorLocation, isValueString
                 If isValueString Then OverwriteBufferSegment output, variableQuote, cursorLocation
+                
             End If
 
             If iCount <> UBound(keyOrIndex) Then
                 OverwriteBufferSegment output, Comma, cursorLocation
             End If
-            If prettyPrint And (Not isContainerJsonObject Or iCount = UBound(keyOrIndex)) Then OverwriteBufferSegment output, vbNewLine, cursorLocation
+            
+            If prettyPrint And isContainerJsonObject Then OverwriteBufferSegment output, vbNewLine, cursorLocation
             
         Next iCount
     End With
