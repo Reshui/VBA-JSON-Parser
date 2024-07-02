@@ -293,7 +293,7 @@ Public Function Serialize(container As Object, encloseStringsInEscapedQuotes As 
             If iCount <> UBound(keyOrIndex) Then
                 OverwriteBufferSegment output, Comma, cursorLocation
             End If
-            If prettyPrint Then OverwriteBufferSegment output, vbNewLine, cursorLocation
+            If prettyPrint And (Not isContainerJsonObject Or iCount = UBound(keyOrIndex)) Then OverwriteBufferSegment output, vbNewLine, cursorLocation
             
         Next iCount
     End With
