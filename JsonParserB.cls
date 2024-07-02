@@ -38,7 +38,7 @@ Attribute VB_Exposed = False
 Option Explicit
 Private Const INVALID_JSON_FORMAT_ERROR& = vbObjectError + 547
 Private Const INDEX_OFFSET As Byte = 1
-Private Const RightCurly$ = "}", LeftCurly$ = "{", LeftSquare$ = "[", RightSquare$ = "]", DecimalChar$ = ".", _
+Private Const RightCurly$ = "}", LeftCurly$ = "{", LeftSquare$ = "[", RightSquare$ = "]", DecimalChar$ = ".", PrettyTab$ = "    ", _
 QuoteCharacter$ = """", BackslashCharacter$ = "\", SpaceCharacter$ = " ", ColonCharacter$ = ":", Comma$ = ",", BINARY_OFFSET As Byte = 2
 
 Private pConvertStampsToDate As Boolean
@@ -169,7 +169,7 @@ Private Function Deserialize(ByRef json$) As Object
                         End If
                     Else
                         'Should already be a raised error in GetValueRangeAndKey().
-                        Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="JSON parser failed. Key unavailable for object."
+                        Err.Raise INVALID_JSON_FORMAT_ERROR, description:="JSON parser failed. Key unavailable for object."
                     End If
                 End If
             End If
@@ -202,7 +202,7 @@ Private Function Deserialize(ByRef json$) As Object
         Set Deserialize = jsonContainer
         
     Else
-        Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Json isn't an object > {*} or array > [*]."
+        Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Json isn't an object > {*} or array > [*]."
     End If
 
     Exit Function
@@ -253,8 +253,8 @@ Public Function Serialize(container As Object, encloseStringsInEscapedQuotes As 
     End If
     
     If prettyPrint Then
-        If indentLevel <> 0 Then whitespaceL1 = String$(indentLevel, vbTab)
-        whitespaceL2 = String$(indentLevel + 1, vbTab)
+        If indentLevel <> 0 Then whitespaceL1 = Space$(indentLevel * 4)
+        whitespaceL2 = Space$((indentLevel + 1) * 4)
     End If
     
     If isContainerJsonObject Then
@@ -402,7 +402,7 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
     End Select
     
     If InStrB(1, ",]}", Mid$(json, nextEnclosingTokenIndex, 1)) = 0 Then
-        Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid JSON format. Expected one of ',' or ']' or '}'. Calculated token index doesn't reference a value delimiter: " & Mid$(json, nextEnclosingTokenIndex, 1)
+        Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid JSON format. Expected one of ',' or ']' or '}'. Calculated token index doesn't reference a value delimiter: " & Mid$(json, nextEnclosingTokenIndex, 1)
     End If
     
     GetNextEnclosingDelimiterLocation = nextEnclosingTokenIndex
@@ -451,18 +451,18 @@ Private Sub GetValueRangeAndKey(ByRef json$, ByRef minimumIndex&, ByRef maxSearc
                 If (keyEndLocation < valueStartLocation) Then
                     ' Will raise error if invalid key.
                     keyForValue = ProcessCharactersInRange(json, keyStartLocation, keyEndLocation, isKeyAvailalble)
-                    If Not isKeyAvailalble Then Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key must be enclosed in quotes." & Mid$(json, keyStartLocation, keyEndLocation - keyStartLocation + 1)
+                    If Not isKeyAvailalble Then Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key must be enclosed in quotes." & Mid$(json, keyStartLocation, keyEndLocation - keyStartLocation + 1)
                 Else
-                    Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key overlaps with value." & Mid$(json, keyStartLocation, keyEndLocation - valueEndLocation + 1)
+                    Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key overlaps with value." & Mid$(json, keyStartLocation, keyEndLocation - valueEndLocation + 1)
                 End If
             Else
-                Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key-Value delimiter not found." & Mid$(json, keyStartLocation, keyStartLocation - valueEndLocation + 1)
+                Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key-Value delimiter not found." & Mid$(json, keyStartLocation, keyStartLocation - valueEndLocation + 1)
             End If
         Else
-            Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key doesn't start with a quote or couldn't find valid enclosing token: " & Mid$(json, keyStartLocation, keyStartLocation - valueEndLocation + 1)
+            Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key doesn't start with a quote or couldn't find valid enclosing token: " & Mid$(json, keyStartLocation, keyStartLocation - valueEndLocation + 1)
         End If
     Else
-        Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Expected Key-Value pair not found."
+        Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Expected Key-Value pair not found."
     End If
 
     isKeyAvailalble = True
@@ -525,7 +525,7 @@ Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As
                         containerObject.Add Null
                     End If
                 Case Else
-                    Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid format: Value isn't numeric and failed string literal checks. Ensure it's enclosed in unescaped quotes: " & value
+                    Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid format: Value isn't numeric and failed string literal checks. Ensure it's enclosed in unescaped quotes: " & value
             End Select
         End If
     Else
@@ -652,7 +652,7 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
                                     
                                     characterIndex = characterIndex + 4
                                 Case Else
-                                    Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Unescaped backslash with no special character."
+                                    Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Unescaped backslash with no special character."
                             End Select
                         End If
                     End If
@@ -691,7 +691,7 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
             ProcessCharactersInRange = Mid$(json, 2, currentBufferIndex - 2)
         ElseIf unescapedQuoteCount > 0 And Not isArrayOrObject Then
             ' Ensure quality of string value. ie don't allow "apple to be excepted as a string.
-            Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Invalid unescaped quotation mark(s) detected: " & Left$(json, currentBufferIndex)
+            Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Invalid unescaped quotation mark(s) detected: " & Left$(json, currentBufferIndex)
         Else
             ProcessCharactersInRange = Left$(json, currentBufferIndex)
         End If
@@ -842,8 +842,8 @@ Private Sub PropagateError(e As ErrObject, procedureName$, Optional moreDetails$
     Const delim$ = ": "
     With e
         AddParentToErrSource e, procedureName
-        If LenB(moreDetails) > 0 Then .Description = moreDetails & vbNewLine & .Description
-        .Raise .Number, .Source, .Description
+        If LenB(moreDetails) > 0 Then .description = moreDetails & vbNewLine & .description
+        .Raise .Number, .Source, .description
     End With
     
 End Sub
@@ -926,7 +926,7 @@ Private Function TryParseIso8601Date(iso$, returnedDate As Date) As Boolean
     On Error GoTo ReturnFalse
 
     dateParts = Split(iso, "T")
-    If Len(dateParts(0)) > 0 Then isoDate = GetDateOrTime(dateParts(0), True)
+    If Len(dateParts(0)) > 0 Then isoDate = GetDateOrTime(dateParts(0), IIf(InStrB(dateParts(0), ":") = 0, True, False))
     If UBound(dateParts) = 1 Then isoTime = GetDateOrTime(dateParts(1), False)
 
     returnedDate = isoDate + isoTime
@@ -964,7 +964,7 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
         temp = Trim$(Left$(timeStamp, 4))
         
         If Not IsTextValidNumber(temp, 4, False, True, utcYear) Then
-             Err.Raise 13, Description:="Incorrect year format."
+             Err.Raise 13, description:="Incorrect year format."
         End If
 
         Dim weekNumTokenIndex As Long
@@ -972,7 +972,7 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
         timeStampIsWeekDate = weekNumTokenIndex > 0
          
         If timeStampIsWeekDate And weekNumTokenIndex <> 5 Then
-            Err.Raise 13, Description:="Bad Format"
+            Err.Raise 13, description:="Bad Format"
         End If
         
         ' YYYY-DDD or YYYYDDD
@@ -983,7 +983,7 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
             temp = Trim$(Mid$(timeStamp, weekNumTokenIndex + 1, 2))
 
             If Not IsTextValidNumber(temp, 2, False, True, weekOfYear) Then
-                Err.Raise 13, Description:="Incorrect week of year format."
+                Err.Raise 13, description:="Incorrect week of year format."
             End If
             
             If weekNumTokenIndex + 2 < Len(timeStamp) Then dayOfWeek = Right$(timeStamp, 1)
@@ -994,18 +994,18 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
             temp = Trim$(Right$(timeStamp, 3))
 
             If Not IsTextValidNumber(temp, 3, False, True, dayOfYear) Then
-                Err.Raise 13, Description:="Incorrect day of year format."
+                Err.Raise 13, description:="Incorrect day of year format."
             End If
             GetDateOrTime = DateAdd("d", dayOfYear, DateSerial(utcYear, 0, 0))
         Else
             ' YYYY   YYYYMM  YYYYMMDD
             If Len(timeStamp) = 6 And isBasicFormat Then
                 ' Disable YYYYMM but not YYYY-MM
-                Err.Raise 13, Description:="YYYYMM is an invalid format. Use YYYY-MM"
+                Err.Raise 13, description:="YYYYMM is an invalid format. Use YYYY-MM"
             Else
                 temp = Mid$(timeStamp, 5, Len(timeStamp) - 4)
                 If Not IsNumeric(temp) Or Len(temp) > 4 Then
-                    Err.Raise 13, Description:="Bad format."
+                    Err.Raise 13, description:="Bad format."
                 End If
                 
                 temp = Trim$(Mid$(timeStamp, 5, 2))
@@ -1032,15 +1032,15 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
                 Select Case i
                     Case 1
                         If Not IsTextValidNumber(Left$(timeStamp, 2), 2, False, True, utcHour) Then
-                            Err.Raise 13, Description:="Bad Format"
+                            Err.Raise 13, description:="Bad Format"
                         End If
                     Case 3
                         If Not IsTextValidNumber(Mid$(timeStamp, i, 2), 2, False, True, utcMinute) Then
-                            Err.Raise 13, Description:="Bad Format"
+                            Err.Raise 13, description:="Bad Format"
                         End If
                     Case 5
                         If Not IsTextValidNumber(Mid$(timeStamp, i, 2), 2, False, True, utcSecond) Then
-                            Err.Raise 13, Description:="Bad Format"
+                            Err.Raise 13, description:="Bad Format"
                         End If
                 End Select
             End If
