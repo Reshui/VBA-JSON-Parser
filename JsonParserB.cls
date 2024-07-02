@@ -289,12 +289,7 @@ Public Function Serialize(container As Object, encloseStringsInEscapedQuotes As 
             Else
             
                 isValueDate = IsDate(.Item(keyOrIndex(iCount)))
-                
-                If isValueDate Then
-                    isValueString = True
-                Else
-                    isValueString = VarType(.Item(keyOrIndex(iCount))) = vbString
-                End If
+                isValueString = isValueDate Or VarType(.Item(keyOrIndex(iCount))) = vbString
                            
                 If isValueString Then OverwriteBufferSegment output, variableQuote, cursorLocation
                 OverwriteBufferSegment output, IIf(isValueDate, Format$(.Item(keyOrIndex(iCount)), "yyyy-mm-ddThh:mm:ss"), .Item(keyOrIndex(iCount))), cursorLocation, isValueString
@@ -313,14 +308,10 @@ Public Function Serialize(container As Object, encloseStringsInEscapedQuotes As 
     
     If prettyPrint And indentLevel <> 0 Then OverwriteBufferSegment output, whitespaceL1, cursorLocation
     
-    If isContainerJsonObject Then
-        OverwriteBufferSegment output, RightCurly, cursorLocation
-    Else
-        OverwriteBufferSegment output, RightSquare, cursorLocation
-    End If
+    OverwriteBufferSegment output, IIf(isContainerJsonObject, RightCurly, RightSquare), cursorLocation
     Serialize = Left$(output, cursorLocation)
-    
 End Function
+
 Private Sub CreateObjectOnStack(stack As Collection, createJsonObject As Boolean)
 
     If createJsonObject Then
