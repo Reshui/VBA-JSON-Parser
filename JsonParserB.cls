@@ -55,19 +55,19 @@ End Sub
 Public Function ParseJsonString(ByRef json$, Optional convertTimeStampsToDate As Boolean = False, Optional convertDatesToUTC As Boolean = False) As Object
     pConvertStampsToDate = convertTimeStampsToDate
     pConvertDatesToUTC = convertDatesToUTC
-    Set ParseJsonString = ParseJSON(json)
+    Set ParseJsonString = Deserialize(json)
 End Function
 Public Function ParseJsonBytes(ByRef jsonBytes() As Byte, Optional convertTimeStampsToDate As Boolean = False, Optional convertDatesToUTC As Boolean = False) As Object
     'Warning bytes must be UTF-16
     pConvertStampsToDate = convertTimeStampsToDate
     pConvertDatesToUTC = convertDatesToUTC
-    Set ParseJsonBytes = ParseJSON(CStr(jsonBytes))
+    Set ParseJsonBytes = Deserialize(CStr(jsonBytes))
 End Function
 
-Private Function ParseJSON(ByRef json$) As Object
+Private Function Deserialize(ByRef json$) As Object
 '====================================================================================================================================================================================
 ' Summary:
-'   Non-Recursive JSON parser.
+'   Non-Recursive JSON parser to convert a JSON string into a dictionary/collection.
 ' Parameters:
 '      [json] - JSON string to parse.
 ' Returns:
@@ -199,7 +199,7 @@ Private Function ParseJSON(ByRef json$) As Object
             .Remove cursorLimit
             .Remove cursorLocationAfterCompletion
         End With
-        Set ParseJSON = jsonContainer
+        Set Deserialize = jsonContainer
         
     Else
         Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Json isn't an object > {*} or array > [*]."
@@ -210,7 +210,7 @@ CATCH_FAILURE:
     #If DebugActive Then
         Stop: Resume
     #Else
-        PropagateError Err, "ParseJSON"
+        PropagateError Err, "Deserialize"
     #End If
 End Function
 Public Sub Unit_Test()
@@ -222,7 +222,7 @@ Public Sub Unit_Test()
         '.ParseJsonString HttpGet("http://worldtimeapi.org/api/timezone/America/New_York", success)
     End With
 End Sub
-Public Function ConvertToJSON(container As Object, encloseStringsInEscapedQuotes As Boolean) As String
+Public Function Serialize(container As Object, encloseStringsInEscapedQuotes As Boolean, Optional prettyPrint As Boolean = False, Optional ByVal indentLevel& = 0) As String
 '=======================================================================================================================================
 ' Summary:
 '   Converts a Collection or Dictionary to a Json string.
@@ -231,10 +231,11 @@ Public Function ConvertToJSON(container As Object, encloseStringsInEscapedQuotes
 '   [encloseStringsInEscapedQuotes] - True to enclose text in escaped quotes instead of unescaped quotes.
 '        Example: {\"hello\":1} instead of {"hello":1}
 '=======================================================================================================================================
-    Dim output$, cursorLocation&, isContainerJsonObject As Boolean, keyOrIndex() As Variant, iCount&, isValueString As Boolean, quote$
+    Dim output$, cursorLocation&, isContainerJsonObject As Boolean, keyOrIndex() As Variant, _
+    iCount&, isValueString As Boolean, variableQuote$, currentIndent&, whitespaceL1$, whitespaceL2$
     
-    quote = IIf(encloseStringsInEscapedQuotes, "\""", """")
-    
+    variableQuote = IIf(encloseStringsInEscapedQuotes, "\""", """")
+
     output = String(1000, " ")
         
     If TypeName(container) = "Dictionary" Then
@@ -246,55 +247,66 @@ Public Function ConvertToJSON(container As Object, encloseStringsInEscapedQuotes
             keyOrIndex(iCount) = iCount
         Next iCount
     Else
-        Err.Raise 13, "ConvertToJSON", "Container must be either a Collection or Dictionary."
+        Err.Raise 13, "Serialize", "Container must be either a Collection or Dictionary."
+    End If
+    
+    If prettyPrint Then
+        If indentLevel <> 0 Then
+            whitespaceL1 = String$(indentLevel, vbTab)
+            'OverwriteBufferSegment output, whitespaceL1, cursorLocation
+        End If
+        whitespaceL2 = String$(indentLevel + 1, vbTab)
     End If
 
     If isContainerJsonObject Then
-        OverwriteBufferSegment output, "{", cursorLocation
+        OverwriteBufferSegment output, LeftCurly, cursorLocation
     Else
-        OverwriteBufferSegment output, "[", cursorLocation
+        OverwriteBufferSegment output, LeftSquare, cursorLocation
+    End If
+    
+    If prettyPrint Then
+        OverwriteBufferSegment output, vbNewLine, cursorLocation
     End If
     
     With container
-
         For iCount = LBound(keyOrIndex) To UBound(keyOrIndex)
-
+        
+            If prettyPrint Then OverwriteBufferSegment output, whitespaceL2, cursorLocation
+            
             If isContainerJsonObject Then
-                OverwriteBufferSegment output, quote, cursorLocation
+                OverwriteBufferSegment output, variableQuote, cursorLocation
                 OverwriteBufferSegment output, CStr(keyOrIndex(iCount)), cursorLocation, True
-                OverwriteBufferSegment output, quote, cursorLocation
-                OverwriteBufferSegment output, ":", cursorLocation
+                OverwriteBufferSegment output, variableQuote, cursorLocation
+                OverwriteBufferSegment output, ColonCharacter, cursorLocation
             End If
                 
             If IsObject(.Item(keyOrIndex(iCount))) Then
-                OverwriteBufferSegment output, ConvertToJSON(.Item(keyOrIndex(iCount)), encloseStringsInEscapedQuotes), cursorLocation
+                OverwriteBufferSegment output, Serialize(.Item(keyOrIndex(iCount)), encloseStringsInEscapedQuotes, prettyPrint, indentLevel + 1), cursorLocation
             Else
-                If VarType(.Item(keyOrIndex(iCount))) = vbString Then
-                    isValueString = True
-                Else
-                    isValueString = False
-                End If
+                isValueString = VarType(.Item(keyOrIndex(iCount))) = vbString
                 
-                If isValueString Then OverwriteBufferSegment output, quote, cursorLocation
+                If isValueString Then OverwriteBufferSegment output, variableQuote, cursorLocation
                 OverwriteBufferSegment output, .Item(keyOrIndex(iCount)), cursorLocation, isValueString
-                If isValueString Then OverwriteBufferSegment output, quote, cursorLocation
-                
+                If isValueString Then OverwriteBufferSegment output, variableQuote, cursorLocation
             End If
 
             If iCount <> UBound(keyOrIndex) Then
-                OverwriteBufferSegment output, ",", cursorLocation
+                OverwriteBufferSegment output, Comma, cursorLocation
             End If
-
+            If prettyPrint Then OverwriteBufferSegment output, vbNewLine, cursorLocation
+            
         Next iCount
-
     End With
     
+    If prettyPrint And indentLevel <> 0 Then OverwriteBufferSegment output, whitespaceL1, cursorLocation
+    
     If isContainerJsonObject Then
-        OverwriteBufferSegment output, "}", cursorLocation
+        OverwriteBufferSegment output, RightCurly, cursorLocation
     Else
-        OverwriteBufferSegment output, "]", cursorLocation
+        OverwriteBufferSegment output, RightSquare, cursorLocation
     End If
-    ConvertToJSON = Left$(output, cursorLocation)
+    Serialize = Left$(output, cursorLocation)
+    
 End Function
 Private Sub CreateObjectOnStack(stack As Collection, createJsonObject As Boolean)
 
@@ -857,16 +869,15 @@ Private Sub OverwriteBufferSegment(buffer$, textToAdd$, cursor&, Optional proces
 '       [processFurther] - Set to True if you want to encode strings.
 '======================================================================================================================================
     Dim additionLength&
-    Const quote$ = """"
     
     If processFurther Then
         If InStrB(1, textToAdd, vbTab) > 0 Then textToAdd = Replace$(textToAdd, vbTab, "\t")
-        If InStrB(1, textToAdd, quote) > 0 Then textToAdd = Replace$(textToAdd, quote, "\""")
+        If InStrB(1, textToAdd, QuoteCharacter) > 0 Then textToAdd = Replace$(textToAdd, QuoteCharacter, "\""")
         If InStrB(1, textToAdd, vbCr) > 0 Then textToAdd = Replace$(textToAdd, vbCr, "\r")
         If InStrB(1, textToAdd, vbBack) > 0 Then textToAdd = Replace$(textToAdd, vbBack, "\b")
         If InStrB(1, textToAdd, vbLf) > 0 Then textToAdd = Replace$(textToAdd, vbLf, "\n")
         If InStrB(1, textToAdd, vbFormFeed) > 0 Then textToAdd = Replace$(textToAdd, vbFormFeed, "\f")
-        If InStrB(1, textToAdd, "\") > 0 Then textToAdd = Replace$(textToAdd, "\", "\\")
+        If InStrB(1, textToAdd, BackslashCharacter) > 0 Then textToAdd = Replace$(textToAdd, BackslashCharacter, "\\")
         'To Do: Convert Unicode characters.
 '        #If Mac Then
 '
@@ -933,7 +944,7 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
 ' Reference:
 '   https://en.wikipedia.org/wiki/ISO_8601
 '======================================================================================================================================
-    Dim parts$(), isOrdinalDate As Boolean, isUTC As Boolean, _
+    Dim isOrdinalDate As Boolean, isUTC As Boolean, _
     isBasicFormat As Boolean, timeStampIsWeekDate As Boolean, temp$
 
     Dim utcYear As Long, utcMonth As Long, utcDay As Long, utcHour As Long, utcMinute As Long, _
@@ -983,10 +994,11 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
             End If
             GetDateOrTime = DateAdd("d", dayOfYear, DateSerial(utcYear, 0, 0))
         Else
+            ' YYYY   YYYYMM  YYYYMMDD
             If Len(timeStamp) = 6 And isBasicFormat Then
+                ' Disable YYYYMM but not YYYY-MM
                 Err.Raise 13, Description:="YYYYMM is an invalid format. Use YYYY-MM"
             Else
-                
                 temp = Mid$(timeStamp, 5, Len(timeStamp) - 4)
                 If Not IsNumeric(temp) Or Len(temp) > 4 Then
                     Err.Raise 13, Description:="Bad format."
@@ -1089,3 +1101,5 @@ Public Function GetWeekDate(calendarYear As Long, weekNumber&, Optional isoDayId
     GetWeekDate = DateAdd("d", (isoDayId + 7) Mod 7, dateBuilder)
 
 End Function
+
+
