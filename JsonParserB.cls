@@ -52,19 +52,19 @@ Private Sub Class_Initialize()
     pSpecialCharactersA(4) = vbLf: pSpecialCharactersA(5) = VBA.vbBack: pSpecialCharactersA(6) = VBA.vbFormFeed
 End Sub
 
-Public Function ParseJsonString(ByRef json$, Optional convertTimeStampsToDate As Boolean = False, Optional convertDatesToUTC As Boolean = False) As Object
+Public Function Deserialize(ByRef json$, Optional convertTimeStampsToDate As Boolean = False, Optional convertDatesToUTC As Boolean = False) As Object
     pConvertStampsToDate = convertTimeStampsToDate
     pConvertDatesToUTC = convertDatesToUTC
-    Set ParseJsonString = Deserialize(json)
+    Set Deserialize = ParseJsonString(json)
 End Function
-Public Function ParseJsonBytes(ByRef jsonBytes() As Byte, Optional convertTimeStampsToDate As Boolean = False, Optional convertDatesToUTC As Boolean = False) As Object
+Public Function DeserializeBytes(ByRef jsonBytes() As Byte, Optional convertTimeStampsToDate As Boolean = False, Optional convertDatesToUTC As Boolean = False) As Object
     'Warning bytes must be UTF-16
     pConvertStampsToDate = convertTimeStampsToDate
     pConvertDatesToUTC = convertDatesToUTC
-    Set ParseJsonBytes = Deserialize(CStr(jsonBytes))
+    Set DeserializeBytes = ParseJsonString(CStr(jsonBytes))
 End Function
 
-Private Function Deserialize(ByRef json$) As Object
+Private Function ParseJsonString(ByRef json$) As Object
 '====================================================================================================================================================================================
 ' Summary:
 '   Non-Recursive JSON parser to convert a JSON string into a dictionary/collection.
@@ -199,7 +199,7 @@ Private Function Deserialize(ByRef json$) As Object
             .Remove cursorLimit
             .Remove cursorLocationAfterCompletion
         End With
-        Set Deserialize = jsonContainer
+        Set ParseJsonString = jsonContainer
         
     Else
         Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Json isn't an object > {*} or array > [*]."
@@ -210,7 +210,7 @@ CATCH_FAILURE:
     #If DebugActive Then
         Stop: Resume
     #Else
-        PropagateError Err, "Deserialize"
+        PropagateError Err, "ParseJsonString"
     #End If
 End Function
 Public Sub Unit_Test()
@@ -218,7 +218,7 @@ Public Sub Unit_Test()
     With Me
         '.ParseJsonString "{""apple"":""tree"",""inner object"":1,""array"":[1,2,3,{""apple"":22,""berry"":45}]}"
         '.ParseJsonString "{""ground\n\\\""beaver"":""tr\\ee"",""inner object"":[{""APP"":1,""Sun"":""Moon"",""Ocean"":""Beach""},[""a"",""b"",""c""],[0,1,2,[5,6,7,8],9,10]],""array"":[1,2,3,{""apple"":22,""berry"":45}]}"
-        Set ob = .ParseJsonString("{""L"":{""True"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""724 ms"",""Status"":0,""Combined"":""True"",""Id"":""Legacy""},""False"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""False"",""Id"":""Legacy""}},""D"":{""True"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""True"",""Id"":""Disaggregated""},""False"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""False"",""Id"":""Disaggregated""}},""T"":{""True"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""True"",""Id"":""TFF""},""False"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""False"",""Id"":""TFF""}}}", True)
+        Set ob = .Deserialize("{""L"":{""True"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""724 ms"",""Status"":0,""Combined"":""True"",""Id"":""Legacy""},""False"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""False"",""Id"":""Legacy""}},""D"":{""True"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""True"",""Id"":""Disaggregated""},""False"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""False"",""Id"":""Disaggregated""}},""T"":{""True"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""True"",""Id"":""TFF""},""False"":{""Latest Date"":""2024-06-25"",""Time Elapsed"":""0 ms"",""Status"":0,""Combined"":""False"",""Id"":""TFF""}}}", True)
         Debug.Print Serialize(ob, False, True)
         
         '.ParseJsonString HttpGet("http://worldtimeapi.org/api/timezone/America/New_York", success)
