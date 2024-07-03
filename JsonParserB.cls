@@ -38,7 +38,7 @@ Attribute VB_Exposed = False
 Option Explicit
 Private Const INVALID_JSON_FORMAT_ERROR& = vbObjectError + 547
 Private Const INDEX_OFFSET As Byte = 1
-Private Const RightCurly$ = "}", LeftCurly$ = "{", LeftSquare$ = "[", RightSquare$ = "]", DecimalChar$ = ".", PrettyTab$ = "    ", _
+Private Const RightCurly$ = "}", LeftCurly$ = "{", LeftSquare$ = "[", RightSquare$ = "]", DecimalChar$ = ".", _
 QuoteCharacter$ = """", BackslashCharacter$ = "\", SpaceCharacter$ = " ", ColonCharacter$ = ":", Comma$ = ",", BINARY_OFFSET As Byte = 2
 
 Private pConvertStampsToDate As Boolean
@@ -260,7 +260,7 @@ Public Function Serialize(container As Object, encloseStringsInEscapedQuotes As 
     If isContainerJsonObject Then
         'If indentLevel <> 0 Then OverwriteBufferSegment output, whitespaceL1, cursorLocation
         OverwriteBufferSegment output, LeftCurly, cursorLocation
-        OverwriteBufferSegment output, vbNewLine, cursorLocation
+        If prettyPrint Then OverwriteBufferSegment output, vbNewLine, cursorLocation
     Else
         OverwriteBufferSegment output, LeftSquare, cursorLocation
     End If
