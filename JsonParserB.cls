@@ -103,7 +103,7 @@ Private Function ParseJsonString(ByRef json$) As Object
         AddValueToObject jsonContainer, isValueJsonObject, addingCursorLimit:=True, numberToAdd:=jsonLength, keyForValue:=cursorLimit
         AddValueToObject jsonContainer, isValueJsonObject, addingCursorLimit:=True, numberToAdd:=jsonLength, keyForValue:=cursorLocationAfterCompletion
 
-        isContainerJsonObject = Not TypeOf jsonContainer Is Collection
+        isContainerJsonObject = isValueJsonObject
         
         Do While cursorLocation < jsonLength
             ' For certain JSON strings when an object/array was closed on the previous loop then the
@@ -169,7 +169,7 @@ Private Function ParseJsonString(ByRef json$) As Object
                         End If
                     Else
                         'Should already be a raised error in GetValueRangeAndKey().
-                        Err.Raise INVALID_JSON_FORMAT_ERROR, description:="JSON parser failed. Key unavailable for object."
+                        Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="JSON parser failed. Key unavailable for object."
                     End If
                 End If
             End If
@@ -202,7 +202,7 @@ Private Function ParseJsonString(ByRef json$) As Object
         Set ParseJsonString = jsonContainer
         
     Else
-        Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Json isn't an object > {*} or array > [*]."
+        Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Json isn't an object > {*} or array > [*]."
     End If
 
     Exit Function
@@ -343,8 +343,8 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
     Dim maxIndexBinary&, nextCurlyCloseBinary&, nextCurlyOpenBinary&, previousCloseBinary&, tokenIndicator$(1), nextEnclosingTokenIndex&, escapeEnclosingArrayOrObject As Boolean
 
     On Error GoTo Propagate
-    currentIndexBinary = (cursorLocation * BINARY_OFFSET) - 1
-    maxIndexBinary = (maxCursorLocation * BINARY_OFFSET) - 1
+    currentIndexBinary = ConvertToBinaryIndex(cursorLocation)
+    maxIndexBinary = ConvertToBinaryIndex(maxCursorLocation)
     ' Search for tokens starting at currentIndexBinary + offset.
     nextCurlyOpenBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, LeftCurly)
     nextCurlyCloseBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, RightCurly)
@@ -352,7 +352,7 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
     nextSquareCloseBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, RightSquare)
     nextValidCommaTokenIndexBinary = SeekNextUnquotedBinaryCharacterIndex(json, Comma, cursorLocation + INDEX_OFFSET, maxCursorLocation)
 
-    If nextValidCommaTokenIndexBinary > 0 Then nextEnclosingTokenIndex = (nextValidCommaTokenIndexBinary \ BINARY_OFFSET) + 1
+    If nextValidCommaTokenIndexBinary > 0 Then nextEnclosingTokenIndex = ConvertFromBinaryIndex(nextValidCommaTokenIndexBinary)
 
     If nextValidCommaTokenIndexBinary > 0 Then
         '======================================================================================================================================
@@ -382,14 +382,14 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
 
             If previousCloseBinary < maxIndexBinary Then
                 ' Find MIN not equal to 0 of the following.
-                nextEnclosingTokenIndex = SeekNextUnquotedBinaryCharacterIndex(json, Comma, (previousCloseBinary \ BINARY_OFFSET) + 1, maxCursorLocation)
+                nextEnclosingTokenIndex = SeekNextUnquotedBinaryCharacterIndex(json, Comma, ConvertFromBinaryIndex(previousCloseBinary), maxCursorLocation)
                 minValues(0) = InStrB(previousCloseBinary + BINARY_OFFSET, json, RightCurly)
                 minValues(1) = InStrB(previousCloseBinary + BINARY_OFFSET, json, RightSquare)
                 
                 For nextCloseBinary = 0 To 1
                     If IsValueInRange(minValues(nextCloseBinary), 1, nextEnclosingTokenIndex, True) Or nextEnclosingTokenIndex <= 0 Then nextEnclosingTokenIndex = minValues(nextCloseBinary)
                 Next nextCloseBinary
-                If nextEnclosingTokenIndex > 0 Then nextEnclosingTokenIndex = (nextEnclosingTokenIndex \ BINARY_OFFSET) + 1
+                If nextEnclosingTokenIndex > 0 Then nextEnclosingTokenIndex = ConvertFromBinaryIndex(nextEnclosingTokenIndex)
             Else
                 nextEnclosingTokenIndex = maxCursorLocation
             End If
@@ -402,7 +402,7 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
     End Select
     
     If InStrB(1, ",]}", Mid$(json, nextEnclosingTokenIndex, 1)) = 0 Then
-        Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid JSON format. Expected one of ',' or ']' or '}'. Calculated token index doesn't reference a value delimiter: " & Mid$(json, nextEnclosingTokenIndex, 1)
+        Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid JSON format. Expected one of ',' or ']' or '}'. Calculated token index doesn't reference a value delimiter: " & Mid$(json, nextEnclosingTokenIndex, 1)
     End If
     
     GetNextEnclosingDelimiterLocation = nextEnclosingTokenIndex
@@ -451,18 +451,18 @@ Private Sub GetValueRangeAndKey(ByRef json$, ByRef minimumIndex&, ByRef maxSearc
                 If (keyEndLocation < valueStartLocation) Then
                     ' Will raise error if invalid key.
                     keyForValue = ProcessCharactersInRange(json, keyStartLocation, keyEndLocation, isKeyAvailalble)
-                    If Not isKeyAvailalble Then Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key must be enclosed in quotes." & Mid$(json, keyStartLocation, keyEndLocation - keyStartLocation + 1)
+                    If Not isKeyAvailalble Then Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key must be enclosed in quotes." & Mid$(json, keyStartLocation, keyEndLocation - keyStartLocation + 1)
                 Else
-                    Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key overlaps with value." & Mid$(json, keyStartLocation, keyEndLocation - valueEndLocation + 1)
+                    Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key overlaps with value." & Mid$(json, keyStartLocation, keyEndLocation - valueEndLocation + 1)
                 End If
             Else
-                Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key-Value delimiter not found." & Mid$(json, keyStartLocation, keyStartLocation - valueEndLocation + 1)
+                Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key-Value delimiter not found." & Mid$(json, keyStartLocation, keyStartLocation - valueEndLocation + 1)
             End If
         Else
-            Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Key doesn't start with a quote or couldn't find valid enclosing token: " & Mid$(json, keyStartLocation, keyStartLocation - valueEndLocation + 1)
+            Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Key doesn't start with a quote or couldn't find valid enclosing token: " & Mid$(json, keyStartLocation, keyStartLocation - valueEndLocation + 1)
         End If
     Else
-        Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Expected Key-Value pair not found."
+        Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Expected Key-Value pair not found."
     End If
 
     isKeyAvailalble = True
@@ -525,7 +525,7 @@ Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As
                         containerObject.Add Null
                     End If
                 Case Else
-                    Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid format: Value isn't numeric and failed string literal checks. Ensure it's enclosed in unescaped quotes: " & value
+                    Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid format: Value isn't numeric and failed string literal checks. Ensure it's enclosed in unescaped quotes: " & value
             End Select
         End If
     Else
@@ -558,38 +558,52 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
 ' https://stackoverflow.com/a/75787820/12287457; https://github.com/guwidoe/VBA-StringTools
 ' https://stackoverflow.com/questions/56008191/get-unicode-characters-with-charcode-values-greater-hex-ffff
 '==============================================================================================================================================
-    Dim iLoop&, currentBufferIndex&, isArrayOrObject As Boolean, currentCharacter$, minValues&(6), _
-    groupedBackslashCount&, countOfBackslashToKeep&, specialCharactersInRange As Boolean, unescapedQuoteCount As Long
+    Dim iCount&, currentBufferIndex&, isArrayOrObject As Boolean, currentCharacter$, minValues&(6), _
+    groupedBackslashCount&, countOfBackslashToKeep&, specialCharactersInRange As Boolean, _
+    unescapedQuoteCount As Long, iLoop&
 
     ' Determine if there are any special characters in the range.
-    For iLoop = LBound(pSpecialCharactersA) To UBound(pSpecialCharactersA)
+    For iCount = LBound(pSpecialCharactersA) To UBound(pSpecialCharactersA)
         ' If within bounds set specialCharactersInRange equal to true and exit the loop.
-        If IsValueInRange(InStrB((startIndex * BINARY_OFFSET) - 1, json, pSpecialCharactersA(iLoop)), 1, (maximumAllowedIndex * BINARY_OFFSET) - 1, True) Then
+        If IsValueInRange(InStrB(ConvertToBinaryIndex(startIndex), json, pSpecialCharactersA(iCount)), 1, ConvertToBinaryIndex(maximumAllowedIndex), True) Then
             specialCharactersInRange = True: Exit For
         End If
-    Next iLoop
+    Next iCount
 
     On Error GoTo PropagateErr
     
     If specialCharactersInRange Then
 
-        Dim characterIndex&, regionStart&, writeClearedRegionToBuffer As Boolean, nonInclusiveRegionEnd&, newBufferIndex&, newRegionStart&
+        Dim characterIndex&, regionStart&, writeClearedRegionToBuffer As Boolean, nonInclusiveRegionEnd&, _
+        newBufferIndex&, newRegionStart&, tempIndexBinary&
 
-        regionStart = startIndex: characterIndex = startIndex - INDEX_OFFSET: currentBufferIndex = 0
+        regionStart = startIndex: currentBufferIndex = 0
+        ' - index_offset as it will be incremented again.
+        characterIndex = startIndex - INDEX_OFFSET
                 
         Do While characterIndex < maximumAllowedIndex
-            ' Convert to binary.
-            characterIndex = (characterIndex * BINARY_OFFSET) - 1 + BINARY_OFFSET
-            ' Determine min special character index > 0.
-            For iLoop = LBound(pSpecialCharactersA) To UBound(pSpecialCharactersA)
-                'Use InstrB to determine the forward index of any special characters if characterIndex exceeds a previously stored value.
-                If minValues(iLoop) < characterIndex Then minValues(iLoop) = InStrB(characterIndex, json, pSpecialCharactersA(iLoop))
-                If IsValueInRange(minValues(iLoop), 1, characterIndex - BINARY_OFFSET, True) Or iLoop = LBound(pSpecialCharactersA) Then characterIndex = minValues(iLoop)
-            Next iLoop
-            ' Convert from binary with integer division.
-            If characterIndex > 0 Then characterIndex = (characterIndex \ BINARY_OFFSET) + 1
-            If characterIndex > maximumAllowedIndex Or characterIndex = 0 Then characterIndex = maximumAllowedIndex
+            iLoop = iLoop + 1
 
+            characterIndex = ConvertToBinaryIndex(characterIndex + INDEX_OFFSET)
+            tempIndexBinary = characterIndex
+            ' Determine min special character index > 0.
+            For iCount = LBound(pSpecialCharactersA) To UBound(pSpecialCharactersA)
+                
+                If (minValues(iCount) > 0 Or iLoop = 1) And minValues(iCount) < characterIndex Then
+                    minValues(iCount) = InStrB(tempIndexBinary, json, pSpecialCharactersA(iCount))
+                End If
+                
+                If IsValueInRange(minValues(iCount), 1, characterIndex, False) Or iCount = LBound(pSpecialCharactersA) Then
+                    characterIndex = minValues(iCount)
+                End If
+                
+            Next iCount
+            ' Convert from binary with integer division.
+            characterIndex = ConvertFromBinaryIndex(characterIndex)
+            If characterIndex > maximumAllowedIndex Or characterIndex <= 0 Then
+                characterIndex = maximumAllowedIndex
+            End If
+            
             Select Case Mid$(json, characterIndex, 1)
 
                 Case QuoteCharacter
@@ -652,7 +666,7 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
                                     
                                     characterIndex = characterIndex + 4
                                 Case Else
-                                    Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Unescaped backslash with no special character."
+                                    Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Unescaped backslash with no special character."
                             End Select
                         End If
                     End If
@@ -691,7 +705,7 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
             ProcessCharactersInRange = Mid$(json, 2, currentBufferIndex - 2)
         ElseIf unescapedQuoteCount > 0 And Not isArrayOrObject Then
             ' Ensure quality of string value. ie don't allow "apple to be excepted as a string.
-            Err.Raise INVALID_JSON_FORMAT_ERROR, description:="Invalid Format: Invalid unescaped quotation mark(s) detected: " & Left$(json, currentBufferIndex)
+            Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Invalid unescaped quotation mark(s) detected: " & Left$(json, currentBufferIndex)
         Else
             ProcessCharactersInRange = Left$(json, currentBufferIndex)
         End If
@@ -704,6 +718,13 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
 PropagateErr:
     PropagateError Err, "ProcessCharactersInRange"
 End Function
+Private Function ConvertToBinaryIndex(n&) As Long
+    ConvertToBinaryIndex = (n * BINARY_OFFSET) - 1
+End Function
+Private Function ConvertFromBinaryIndex(n&) As Long
+    ConvertFromBinaryIndex = (n \ BINARY_OFFSET) + 1
+End Function
+
 Private Function TryGetWhitespaceCleanedIndexes(json As String, ByVal regionStartIndex&, ByVal regionEndIndex&, cleanedStartIndex&, cleanedEndIndex&) As Boolean
 '========================================================================================================================
 '   Summary:
@@ -842,8 +863,8 @@ Private Sub PropagateError(e As ErrObject, procedureName$, Optional moreDetails$
     Const delim$ = ": "
     With e
         AddParentToErrSource e, procedureName
-        If LenB(moreDetails) > 0 Then .description = moreDetails & vbNewLine & .description
-        .Raise .Number, .Source, .description
+        If LenB(moreDetails) > 0 Then .Description = moreDetails & vbNewLine & .Description
+        .Raise .Number, .Source, .Description
     End With
     
 End Sub
@@ -964,7 +985,7 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
         temp = Trim$(Left$(timeStamp, 4))
         
         If Not IsTextValidNumber(temp, 4, False, True, utcYear) Then
-             Err.Raise 13, description:="Incorrect year format."
+             Err.Raise 13, Description:="Incorrect year format."
         End If
 
         Dim weekNumTokenIndex As Long
@@ -972,7 +993,7 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
         timeStampIsWeekDate = weekNumTokenIndex > 0
          
         If timeStampIsWeekDate And weekNumTokenIndex <> 5 Then
-            Err.Raise 13, description:="Bad Format"
+            Err.Raise 13, Description:="Bad Format"
         End If
         
         ' YYYY-DDD or YYYYDDD
@@ -983,7 +1004,7 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
             temp = Trim$(Mid$(timeStamp, weekNumTokenIndex + 1, 2))
 
             If Not IsTextValidNumber(temp, 2, False, True, weekOfYear) Then
-                Err.Raise 13, description:="Incorrect week of year format."
+                Err.Raise 13, Description:="Incorrect week of year format."
             End If
             
             If weekNumTokenIndex + 2 < Len(timeStamp) Then dayOfWeek = Right$(timeStamp, 1)
@@ -994,18 +1015,18 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
             temp = Trim$(Right$(timeStamp, 3))
 
             If Not IsTextValidNumber(temp, 3, False, True, dayOfYear) Then
-                Err.Raise 13, description:="Incorrect day of year format."
+                Err.Raise 13, Description:="Incorrect day of year format."
             End If
             GetDateOrTime = DateAdd("d", dayOfYear, DateSerial(utcYear, 0, 0))
         Else
             ' YYYY   YYYYMM  YYYYMMDD
             If Len(timeStamp) = 6 And isBasicFormat Then
                 ' Disable YYYYMM but not YYYY-MM
-                Err.Raise 13, description:="YYYYMM is an invalid format. Use YYYY-MM"
+                Err.Raise 13, Description:="YYYYMM is an invalid format. Use YYYY-MM"
             Else
                 temp = Mid$(timeStamp, 5, Len(timeStamp) - 4)
                 If Not IsNumeric(temp) Or Len(temp) > 4 Then
-                    Err.Raise 13, description:="Bad format."
+                    Err.Raise 13, Description:="Bad format."
                 End If
                 
                 temp = Trim$(Mid$(timeStamp, 5, 2))
@@ -1032,15 +1053,15 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
                 Select Case i
                     Case 1
                         If Not IsTextValidNumber(Left$(timeStamp, 2), 2, False, True, utcHour) Then
-                            Err.Raise 13, description:="Bad Format"
+                            Err.Raise 13, Description:="Bad Format"
                         End If
                     Case 3
                         If Not IsTextValidNumber(Mid$(timeStamp, i, 2), 2, False, True, utcMinute) Then
-                            Err.Raise 13, description:="Bad Format"
+                            Err.Raise 13, Description:="Bad Format"
                         End If
                     Case 5
                         If Not IsTextValidNumber(Mid$(timeStamp, i, 2), 2, False, True, utcSecond) Then
-                            Err.Raise 13, description:="Bad Format"
+                            Err.Raise 13, Description:="Bad Format"
                         End If
                 End Select
             End If
