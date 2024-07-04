@@ -440,7 +440,7 @@ Private Sub GetValueRangeAndKey(ByRef json$, ByRef minimumIndex&, ByRef maxSearc
         ' Does key start with a qukote?
         If Mid$(json, keyStartLocation, 1) = QuoteCharacter Then
 
-            keyValueDelimiterIndex = (SeekNextUnquotedBinaryCharacterIndex(json, ColonCharacter, keyStartLocation, valueEndLocation) \ BINARY_OFFSET) + 1
+            keyValueDelimiterIndex = ConvertFromBinaryIndex(SeekNextUnquotedBinaryCharacterIndex(json, ColonCharacter, keyStartLocation, valueEndLocation))
             ' Is there a ColonCharacter outside of quotes?
             If keyValueDelimiterIndex > 0 Then
                 ' Find boundaries of key using location of key-value delimiter.
@@ -574,12 +574,12 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
     
     If specialCharactersInRange Then
 
-        Dim characterIndex&, regionStart&, newRegionStart&, tempIndexBinary&, previousSpecialIsValid As Boolean
+        Dim characterIndex&, regionStart&, tempIndexBinary&, previousSpecialIsValid As Boolean
 
         regionStart = startIndex: currentBufferIndex = 0
         ' - index_offset as it will be incremented again.
         characterIndex = startIndex - INDEX_OFFSET
-                
+
         Do While characterIndex < maximumAllowedIndex
             iLoop = iLoop + 1
 
@@ -673,7 +673,6 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
                     End If
                     previousSpecialIsValid = True
                 Case vbLf, vbCr, vbTab, vbFormFeed
-                    
                     If previousSpecialIsValid Then
                         Call OverwriteBufferSegment(json, Mid$(json, regionStart, characterIndex - regionStart), currentBufferIndex, False)
                     End If
@@ -804,9 +803,9 @@ Private Function SeekNextUnquotedBinaryCharacterIndex(ByRef json$, ByRef charact
     
     On Error GoTo Return_Default
     
-    maxIndexBinary = (maxSearchIndex * BINARY_OFFSET) - 1
+    maxIndexBinary = ConvertToBinaryIndex(maxSearchIndex)
     ' - BINARY_OFFSET so that start position will be maintained when calculating [characterIndexBinary] and following quotes.
-    rightQuoteIndexBinary = ((startIndex * BINARY_OFFSET) - 1) - BINARY_OFFSET
+    rightQuoteIndexBinary = ConvertToBinaryIndex(startIndex) - BINARY_OFFSET
     
     updateCharacterlocation = True
     
@@ -825,7 +824,7 @@ Private Function SeekNextUnquotedBinaryCharacterIndex(ByRef json$, ByRef charact
                 quoteIndexBinary = InStrB(quoteIndexBinary + BINARY_OFFSET, json, QuoteCharacter)
                 If Not quoteIndexBinary = 0 Then
                     ' Set to TRUE if previous character in the string isn't a backslash.
-                    isNotEscapedQuote = Mid$(json, ((quoteIndexBinary \ BINARY_OFFSET) + 1) - INDEX_OFFSET, 1) <> BackslashCharacter
+                    isNotEscapedQuote = Mid$(json, ConvertFromBinaryIndex(quoteIndexBinary) - INDEX_OFFSET, 1) <> BackslashCharacter
                 End If
             Loop Until isNotEscapedQuote Or quoteIndexBinary = 0 Or (loopCount = 1 And adjustLeftQuote And characterIndexBinary < quoteIndexBinary And isNotEscapedQuote)
             
