@@ -574,8 +574,7 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
     
     If specialCharactersInRange Then
 
-        Dim characterIndex&, regionStart&, writeClearedRegionToBuffer As Boolean, nonInclusiveRegionEnd&, _
-        newBufferIndex&, newRegionStart&, tempIndexBinary&
+        Dim characterIndex&, regionStart&, newRegionStart&, tempIndexBinary&, previousSpecialIsValid As Boolean
 
         regionStart = startIndex: currentBufferIndex = 0
         ' - index_offset as it will be incremented again.
@@ -607,10 +606,14 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
             Select Case Mid$(json, characterIndex, 1)
 
                 Case QuoteCharacter
-                    unescapedQuoteCount = unescapedQuoteCount + 1: writeClearedRegionToBuffer = True: nonInclusiveRegionEnd = characterIndex + 1
-                    newRegionStart = characterIndex + INDEX_OFFSET
+                    unescapedQuoteCount = unescapedQuoteCount + 1
+                    Call OverwriteBufferSegment(json, Mid$(json, regionStart, 1 + characterIndex - regionStart), currentBufferIndex, False)
+                    previousSpecialIsValid = True
                 Case BackslashCharacter
-                    writeClearedRegionToBuffer = True: nonInclusiveRegionEnd = characterIndex: newBufferIndex = currentBufferIndex: groupedBackslashCount = 0
+                    
+                    Call OverwriteBufferSegment(json, Mid$(json, regionStart, characterIndex - regionStart), currentBufferIndex, False)
+                    
+                    groupedBackslashCount = 0
                     ' Count how many backslashes there are until a non-backslash character is found.
                     Do
                         groupedBackslashCount = groupedBackslashCount + 1
@@ -619,47 +622,45 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
                     
                     ' Determine how many \ to keep with integer division.
                     countOfBackslashToKeep = groupedBackslashCount \ 2
-                    
+                    ' Write backslashes to buffer.
                     If countOfBackslashToKeep > 0 Then
-                        ' Write backslashes to buffer.
-                        For newBufferIndex = newBufferIndex + INDEX_OFFSET To newBufferIndex + countOfBackslashToKeep Step INDEX_OFFSET
-                            Mid$(json, newBufferIndex, 1) = BackslashCharacter
-                        Next newBufferIndex
-                        ' For loops will exceed boundary on last loop so reverse by the value of step.
-                        newBufferIndex = newBufferIndex - INDEX_OFFSET
+                        Call OverwriteBufferSegment(json, String$(countOfBackslashToKeep, BackslashCharacter), currentBufferIndex, False)
                     End If
                     
                     If characterIndex <= maximumAllowedIndex Then
                         ' If there is an even number of backslashes then all of them are escaped and the following character doesn't need additional processing.
                         If (groupedBackslashCount Mod 2) <> 0 Then
-                            currentCharacter = Mid$(json, characterIndex, 1): newBufferIndex = newBufferIndex + INDEX_OFFSET
+                            
+                            currentCharacter = Mid$(json, characterIndex, 1)
+                            currentBufferIndex = currentBufferIndex + INDEX_OFFSET
+                            
                             Select Case currentCharacter
                                 Case "b" '\b
-                                    Mid$(json, newBufferIndex, 1) = VBA.vbBack  'backspace
+                                    Mid$(json, currentBufferIndex, 1) = VBA.vbBack  'backspace
                                 Case "n" '\n
-                                    Mid$(json, newBufferIndex, 1) = vbNewLine 'newline
+                                    Mid$(json, currentBufferIndex, 1) = vbNewLine 'newline
                                 Case "t" '\t
-                                    Mid$(json, newBufferIndex, 1) = vbTab  'tab
+                                    Mid$(json, currentBufferIndex, 1) = vbTab  'tab
                                 Case "0" 'Null character.
-                                    newBufferIndex = newBufferIndex - INDEX_OFFSET
+                                    currentBufferIndex = currentBufferIndex - INDEX_OFFSET
                                 Case QuoteCharacter, "'", "/" '\" or \/ or \0 or \'
-                                    Mid$(json, newBufferIndex, 1) = currentCharacter
+                                    Mid$(json, currentBufferIndex, 1) = currentCharacter
                                 Case "r" '\r
-                                    Mid$(json, newBufferIndex, 1) = vbCr 'carriage return
+                                    Mid$(json, currentBufferIndex, 1) = vbCr 'carriage return
                                 Case "f" '\f
-                                    Mid$(json, newBufferIndex, 1) = vbFormFeed ' Form feed
+                                    Mid$(json, currentBufferIndex, 1) = vbFormFeed ' Form feed
                                 Case "u" '\u
                                     ' See: https://learn.microsoft.com/en-us/office/vba/language/reference/user-interface-help/chr-function
                                     On Error Resume Next
                                     #If Mac Then
-                                        Mid$(json, newBufferIndex, 1) = WorksheetFunction.Unichar(val("&h" & Mid$(json, characterIndex + 1, 4)))
+                                        Mid$(json, currentBufferIndex, 1) = WorksheetFunction.Unichar(val("&h" & Mid$(json, characterIndex + 1, 4)))
                                     #Else
-                                        Mid$(json, newBufferIndex, 1) = ChrW(val("&h" & Mid$(json, characterIndex + 1, 4)))
+                                        Mid$(json, currentBufferIndex, 1) = ChrW(val("&h" & Mid$(json, characterIndex + 1, 4)))
                                     #End If
                                     
                                     With Err
                                         If .Number <> 0 Then
-                                            Mid$(json, newBufferIndex, 1) = "?": .Clear
+                                            Mid$(json, currentBufferIndex, 1) = "?": .Clear
                                         End If
                                     End With
                                     On Error GoTo PropagateErr
@@ -670,25 +671,19 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
                             End Select
                         End If
                     End If
-                    newRegionStart = characterIndex + INDEX_OFFSET
+                    previousSpecialIsValid = True
                 Case vbLf, vbCr, vbTab, vbFormFeed
-                    writeClearedRegionToBuffer = True: nonInclusiveRegionEnd = characterIndex: newRegionStart = characterIndex + INDEX_OFFSET
+                    
+                    If previousSpecialIsValid Then
+                        Call OverwriteBufferSegment(json, Mid$(json, regionStart, characterIndex - regionStart), currentBufferIndex, False)
+                    End If
+                    previousSpecialIsValid = False
+                    regionStart = characterIndex + INDEX_OFFSET
                 Case Else
                     'For the last index
-                    writeClearedRegionToBuffer = True: nonInclusiveRegionEnd = characterIndex + 1
+                    Call OverwriteBufferSegment(json, Mid$(json, regionStart, 1 + characterIndex - regionStart), currentBufferIndex, False)
             End Select
-            
-            If writeClearedRegionToBuffer Or characterIndex = maximumAllowedIndex Then
-                If Not writeClearedRegionToBuffer Then nonInclusiveRegionEnd = characterIndex + INDEX_OFFSET
-                currentBufferIndex = currentBufferIndex + 1
-                ' [json] is used as both source and buffer. [currentBufferIndex] initializes at 1.
-                Mid$(json, currentBufferIndex, nonInclusiveRegionEnd - regionStart) = Mid$(json, regionStart, nonInclusiveRegionEnd - regionStart)
-                ' Set to index of last addition.
-                currentBufferIndex = currentBufferIndex + (nonInclusiveRegionEnd - regionStart) - 1
-                ' If backslash case was used.
-                If newBufferIndex > 0 Then currentBufferIndex = newBufferIndex: newBufferIndex = 0
-                regionStart = newRegionStart: writeClearedRegionToBuffer = False
-            End If
+            regionStart = characterIndex + INDEX_OFFSET
         Loop
         ' Code has been using [json] as a buffer beginning at index 1.
         isRangeQuoteEnclosed = Left$(json, 1) = QuoteCharacter And Mid$(json, currentBufferIndex, 1) = QuoteCharacter
