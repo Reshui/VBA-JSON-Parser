@@ -238,7 +238,7 @@ Public Function Serialize(container As Object, encloseStringsInEscapedQuotes As 
     
     variableQuote = IIf(encloseStringsInEscapedQuotes, "\""", """")
 
-    output = String(1000, " ")
+    output = String$(1000, " ")
         
     If TypeName(container) = "Dictionary" Then
         isContainerJsonObject = True
@@ -579,26 +579,29 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
         regionStart = startIndex: currentBufferIndex = 0
         ' - index_offset as it will be incremented again.
         characterIndex = startIndex - INDEX_OFFSET
-
+        previousSpecialIsValid = True
+                
         Do While characterIndex < maximumAllowedIndex
+            
             iLoop = iLoop + 1
 
             characterIndex = ConvertToBinaryIndex(characterIndex + INDEX_OFFSET)
             tempIndexBinary = characterIndex
             ' Determine min special character index > 0.
             For iCount = LBound(pSpecialCharactersA) To UBound(pSpecialCharactersA)
-                
+                ' If (special character exists in string or on first loop) and stored location less than current location.
                 If (minValues(iCount) > 0 Or iLoop = 1) And minValues(iCount) < characterIndex Then
                     minValues(iCount) = InStrB(tempIndexBinary, json, pSpecialCharactersA(iCount))
                 End If
-                
+                ' If between (1,characterIndex]
                 If IsValueInRange(minValues(iCount), 1, characterIndex, False) Or iCount = LBound(pSpecialCharactersA) Then
                     characterIndex = minValues(iCount)
                 End If
                 
             Next iCount
-            ' Convert from binary with integer division.
+
             characterIndex = ConvertFromBinaryIndex(characterIndex)
+            
             If characterIndex > maximumAllowedIndex Or characterIndex <= 0 Then
                 characterIndex = maximumAllowedIndex
             End If
@@ -606,9 +609,11 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
             Select Case Mid$(json, characterIndex, 1)
 
                 Case QuoteCharacter
+                
                     unescapedQuoteCount = unescapedQuoteCount + 1
                     Call OverwriteBufferSegment(json, Mid$(json, regionStart, 1 + characterIndex - regionStart), currentBufferIndex, False)
                     previousSpecialIsValid = True
+                    
                 Case BackslashCharacter
                     
                     Call OverwriteBufferSegment(json, Mid$(json, regionStart, characterIndex - regionStart), currentBufferIndex, False)
@@ -638,7 +643,7 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
                                 Case "b" '\b
                                     Mid$(json, currentBufferIndex, 1) = VBA.vbBack  'backspace
                                 Case "n" '\n
-                                    Mid$(json, currentBufferIndex, 1) = vbNewLine 'newline
+                                    Mid$(json, currentBufferIndex, 1) = vbNewLine 'New line
                                 Case "t" '\t
                                     Mid$(json, currentBufferIndex, 1) = vbTab  'tab
                                 Case "0" 'Null character.
@@ -672,12 +677,15 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
                         End If
                     End If
                     previousSpecialIsValid = True
+                    
                 Case vbLf, vbCr, vbTab, vbFormFeed
+                
                     If previousSpecialIsValid Then
                         Call OverwriteBufferSegment(json, Mid$(json, regionStart, characterIndex - regionStart), currentBufferIndex, False)
                     End If
                     previousSpecialIsValid = False
                     regionStart = characterIndex + INDEX_OFFSET
+                    
                 Case Else
                     'For the last index
                     Call OverwriteBufferSegment(json, Mid$(json, regionStart, 1 + characterIndex - regionStart), currentBufferIndex, False)
@@ -889,42 +897,49 @@ Private Sub OverwriteBufferSegment(buffer$, textToAdd$, cursor&, Optional proces
 '======================================================================================================================================
     Dim additionLength&
     
-    If processFurther Then
-        If InStrB(1, textToAdd, vbTab) > 0 Then textToAdd = Replace$(textToAdd, vbTab, "\t")
-        If InStrB(1, textToAdd, QuoteCharacter) > 0 Then textToAdd = Replace$(textToAdd, QuoteCharacter, "\""")
-        If InStrB(1, textToAdd, vbCr) > 0 Then textToAdd = Replace$(textToAdd, vbCr, "\r")
-        If InStrB(1, textToAdd, vbBack) > 0 Then textToAdd = Replace$(textToAdd, vbBack, "\b")
-        If InStrB(1, textToAdd, vbLf) > 0 Then textToAdd = Replace$(textToAdd, vbLf, "\n")
-        If InStrB(1, textToAdd, vbFormFeed) > 0 Then textToAdd = Replace$(textToAdd, vbFormFeed, "\f")
-        If InStrB(1, textToAdd, BackslashCharacter) > 0 Then textToAdd = Replace$(textToAdd, BackslashCharacter, "\\")
-        'To Do: Convert Unicode characters.
-'        #If Mac Then
-'
-'        #Else
-'            Dim iCount&, ascwNumber&
-'            iCount = 1
-'            Do While iCount <= Len(textToAdd)
-'                ascwNumber = AscW(Mid$(textToAdd, iCount, 1))
-'                Select Case ascwNumber
-'                    Case Is > 127
-'                        textToAdd = Replace$(textToAdd, Mid$(textToAdd, iCount, 1), "\u" & Format$(Hex(ascwNumber), "0000"))
-'                        iCount = iCount + 6
-'                    Case Else
-'                        iCount = iCount + 1
-'                End Select
-'            Loop
-'        #End If
-    End If
-
-    additionLength = Len(textToAdd)
-    ' Increase buffer until it can contain textToAdd.
-    Do Until cursor + additionLength + 1 <= Len(buffer)
-        buffer = buffer & String(1000, " ")
-    Loop
     
-    Mid$(buffer, cursor + 1, additionLength) = textToAdd
-    cursor = cursor + additionLength
-
+    If LenB(textToAdd) > 0 Then
+    
+        If processFurther Then
+            If InStrB(1, textToAdd, vbTab) > 0 Then textToAdd = Replace$(textToAdd, vbTab, "\t")
+            If InStrB(1, textToAdd, QuoteCharacter) > 0 Then textToAdd = Replace$(textToAdd, QuoteCharacter, "\""")
+            If InStrB(1, textToAdd, vbCr) > 0 Then textToAdd = Replace$(textToAdd, vbCr, "\r")
+            If InStrB(1, textToAdd, vbBack) > 0 Then textToAdd = Replace$(textToAdd, vbBack, "\b")
+            If InStrB(1, textToAdd, vbLf) > 0 Then textToAdd = Replace$(textToAdd, vbLf, "\n")
+            If InStrB(1, textToAdd, vbFormFeed) > 0 Then textToAdd = Replace$(textToAdd, vbFormFeed, "\f")
+            If InStrB(1, textToAdd, BackslashCharacter) > 0 Then textToAdd = Replace$(textToAdd, BackslashCharacter, "\\")
+            'To Do: Convert Unicode characters.
+    '        #If Mac Then
+    '
+    '        #Else
+    '            Dim iCount&, ascwNumber&
+    '            iCount = 1
+    '            Do While iCount <= Len(textToAdd)
+    '                ascwNumber = AscW(Mid$(textToAdd, iCount, 1))
+    '                Select Case ascwNumber
+    '                    Case Is > 127
+    '                        textToAdd = Replace$(textToAdd, Mid$(textToAdd, iCount, 1), "\u" & Format$(Hex(ascwNumber), "0000"))
+    '                        iCount = iCount + 6
+    '                    Case Else
+    '                        iCount = iCount + 1
+    '                End Select
+    '            Loop
+    '        #End If
+        End If
+        
+        additionLength = Len(textToAdd)
+        If additionLength > 0 Then
+            ' Increase buffer until it can contain textToAdd.
+            Do Until cursor + additionLength + 1 <= Len(buffer)
+                buffer = buffer & String(1000, " ")
+            Loop
+            
+            Mid$(buffer, cursor + 1, additionLength) = textToAdd
+            cursor = cursor + additionLength
+        End If
+        
+    End If
+    
 End Sub
 Private Function TryParseIso8601Date(iso$, returnedDate As Date) As Boolean
 '======================================================================================================================================
