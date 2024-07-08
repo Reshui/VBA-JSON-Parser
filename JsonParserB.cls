@@ -35,7 +35,59 @@ Attribute VB_Exposed = False
 ''' FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 ''' IN THE SOFTWARE.
 '''=============================================================================
+#If Mac Then
+
+    #If VBA7 Then
+        ' 64 bit Office:mac
+        Private Declare PtrSafe Function popen Lib "/usr/lib/libc.dylib" (ByVal command As String, ByVal mode As String) As LongPtr
+        Private Declare PtrSafe Function pclose Lib "/usr/lib/libc.dylib" (ByVal file As LongPtr) As LongPtr
+        Private Declare PtrSafe Function fread Lib "/usr/lib/libc.dylib" (ByVal outStr As String, ByVal size As LongPtr, ByVal items As LongPtr, ByVal stream As LongPtr) As LongPtr
+        Private Declare PtrSafe Function feof Lib "/usr/lib/libc.dylib" (ByVal file As LongPtr) As LongPtr
+        'Private file As LongPtr
+    #Else
+        ' 32 bit Office:mac
+        Private Declare Function popen Lib "libc.dylib" (ByVal command As String, ByVal mode As String) As Long
+        Private Declare Function pclose Lib "libc.dylib" (ByVal file As Long) As Long
+        Private Declare Function fread Lib "libc.dylib" (ByVal outStr As String, ByVal size As Long, ByVal items As Long, ByVal stream As Long) As Long
+        Private Declare Function feof Lib "libc.dylib" (ByVal file As Long) As Long
+        'Private file As Long
+    #End If
+
+#ElseIf VBA7 Then
+    Private Declare PtrSafe Function TzSpecificLocalTimeToSystemTime Lib "kernel32" (tzInfo As TimeZoneInformation, localTime As SystemTime, returnedTimeUTC As SystemTime) As LongPtr
+    Private Declare PtrSafe Function SystemTimeToTzSpecificLocalTime Lib "kernel32" (tzInfo As TimeZoneInformation, localTime As SystemTime, returnedLocalTime As SystemTime) As LongPtr
+    Private Declare PtrSafe Function GetTimeZoneInformation Lib "kernel32" (tzInfo As TimeZoneInformation) As LongPtr
+#Else
+    Private Declare Function TzSpecificLocalTimeToSystemTime Lib "kernel32" (tzInfo As TimeZoneInformation, localTime As SystemTime, returnedTimeUTC As SystemTime) As Long
+    Private Declare Function SystemTimeToTzSpecificLocalTime Lib "kernel32" (tzInfo As TimeZoneInformation, localTime As SystemTime, returnedLocalTimeUTC As SystemTime) As Long
+    Private Declare Function GetTimeZoneInformation Lib "kernel32" (tzInfo As TimeZoneInformation) As Long
+#End If
+
+Private Type SystemTime
+    wYear As Integer
+    wMonth As Integer
+    wDayOfWeek As Integer
+    wDay As Integer
+    wHour As Integer
+    wMinute As Integer
+    wSecond As Integer
+    wMilliseconds As Integer
+End Type
+
+Private Type TimeZoneInformation
+    Bias As Long 'The bias is the difference, in minutes, between Coordinated Universal Time (UTC) and local time.
+    StandardName(31) As Integer
+    StandardDate As SystemTime
+    StandardBias As Long
+    DaylightName(31) As Integer
+    DaylightDate As SystemTime
+    DaylightBias As Long
+    'TimeZoneKeyName(127) As Integer
+    'DynamicDaylightTimeDisabled As Boolean
+End Type
+
 Option Explicit
+
 Private Const INVALID_JSON_FORMAT_ERROR& = vbObjectError + 547
 Private Const INDEX_OFFSET As Byte = 1
 Private Const RightCurly$ = "}", LeftCurly$ = "{", LeftSquare$ = "[", RightSquare$ = "]", DecimalChar$ = ".", _
@@ -43,7 +95,7 @@ QuoteCharacter$ = """", BackslashCharacter$ = "\", SpaceCharacter$ = " ", ColonC
 
 Private pConvertStampsToDate As Boolean
 Private pSpecialCharactersA$(6)
-Private pConvertDatesToUTC As Boolean
+Public pConvertDatesToUTC As Boolean
 #Const DebugActive = False
 
 Private Sub Class_Initialize()
@@ -53,6 +105,14 @@ Private Sub Class_Initialize()
 End Sub
 
 Public Function Deserialize(ByRef json$, Optional convertTimeStampsToDate As Boolean = False, Optional convertDatesToUTC As Boolean = False) As Object
+'========================================================================================================================================
+' Summary : Deserializes a json string.
+' Paramaters :
+'   [convertTimeStampToDate] - Set to True to auto attempt converting timestamps to dates.
+'       It is recommended that you submit a value of False as some values may be converted when you don't want them to be ex: "2000" will be converted to year 2000.
+'   [convertDatesToUTC] - True if you want to convert time stamps to UTC if a timezone offset is provided.
+'   [json] - JSON string to parse.
+'========================================================================================================================================
     pConvertStampsToDate = convertTimeStampsToDate
     pConvertDatesToUTC = convertDatesToUTC
     Set Deserialize = ParseJsonString(json)
@@ -486,8 +546,9 @@ Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As
                 containerObject.Add numberToAdd, keyForValue
             End If
         ElseIf isValueString Then
+        
             If pConvertStampsToDate Then
-                If TryParseIso8601Date(value, isoDate) Then
+                If TryParseExactIso8601DateUTC(value, isoDate) Then
                     If isContainerJsonObject Then
                         containerObject.Item(keyForValue) = isoDate
                     Else
@@ -616,7 +677,9 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
                     
                 Case BackslashCharacter
                     
-                    Call OverwriteBufferSegment(json, Mid$(json, regionStart, characterIndex - regionStart), currentBufferIndex, False)
+                    If (characterIndex - regionStart) > 0 Then
+                        Call OverwriteBufferSegment(json, Mid$(json, regionStart, characterIndex - regionStart), currentBufferIndex, False)
+                    End If
                     
                     groupedBackslashCount = 0
                     ' Count how many backslashes there are until a non-backslash character is found.
@@ -680,7 +743,7 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
                     
                 Case vbLf, vbCr, vbTab, vbFormFeed
                 
-                    If previousSpecialIsValid Then
+                    If previousSpecialIsValid And (characterIndex - regionStart > 0) Then
                         Call OverwriteBufferSegment(json, Mid$(json, regionStart, characterIndex - regionStart), currentBufferIndex, False)
                     End If
                     previousSpecialIsValid = False
@@ -896,10 +959,8 @@ Private Sub OverwriteBufferSegment(buffer$, textToAdd$, cursor&, Optional proces
 '       [processFurther] - Set to True if you want to encode strings.
 '======================================================================================================================================
     Dim additionLength&
-    
-    
+        
     If LenB(textToAdd) > 0 Then
-    
         If processFurther Then
             If InStrB(1, textToAdd, vbTab) > 0 Then textToAdd = Replace$(textToAdd, vbTab, "\t")
             If InStrB(1, textToAdd, QuoteCharacter) > 0 Then textToAdd = Replace$(textToAdd, QuoteCharacter, "\""")
@@ -931,7 +992,7 @@ Private Sub OverwriteBufferSegment(buffer$, textToAdd$, cursor&, Optional proces
         If additionLength > 0 Then
             ' Increase buffer until it can contain textToAdd.
             Do Until cursor + additionLength + 1 <= Len(buffer)
-                buffer = buffer & String(1000, " ")
+                buffer = buffer & String$(1000, " ")
             Loop
             
             Mid$(buffer, cursor + 1, additionLength) = textToAdd
@@ -941,7 +1002,17 @@ Private Sub OverwriteBufferSegment(buffer$, textToAdd$, cursor&, Optional proces
     End If
     
 End Sub
-Private Function TryParseIso8601Date(iso$, returnedDate As Date) As Boolean
+Private Function IsTextValidNumber(queriedText$, wantedLength&, ensureNumberLength As Boolean, ensureTextLength As Boolean, ByRef returnedNumber As Integer) As Boolean
+    ' Trim text beforehand.
+    If ensureTextLength And IsNumeric(queriedText) And Len(queriedText) = wantedLength Then
+        returnedNumber = queriedText
+        IsTextValidNumber = True
+    ElseIf ensureNumberLength And IsNumeric(queriedText) Then
+        returnedNumber = queriedText
+        IsTextValidNumber = IsValueInRange(Abs(returnedNumber) / (10 ^ wantedLength), 0, 1, False) And (Abs(returnedNumber) / (10 ^ (wantedLength - 1))) >= 1
+    End If
+End Function
+Public Function TryParseExactIso8601DateUTC(iso$, returnedDate As Date, Optional ByVal dateFormat$) As Boolean
 '======================================================================================================================================
 ' Summary
 '       Attempts to parse [iso] as an ISO-8601 date.
@@ -953,20 +1024,130 @@ Private Function TryParseIso8601Date(iso$, returnedDate As Date) As Boolean
 '======================================================================================================================================
     Dim dateParts$(), isoDate As Date, isoTime As Date
     
+    Dim dict As Object, ignoreDict As Boolean, isIsoWeekDate As Boolean, isUtc As Boolean, parsingTime As Boolean, dictKey$, _
+    character$, cursor As Byte, tokenCount As Byte, followingTextIsTimeZoneOffset As Boolean, subSection$, formatLength As Byte, multiplier As Integer, _
+    yearAvailalbe As Boolean, isOrdinal As Boolean
+
+    #If Mac Then
+        Set dict = New Dictionary
+    #Else
+        Set dict = CreateObject("Scripting.Dictionary")
+    #End If
+
+    formatLength = Len(dateFormat)
+
+    If formatLength > IIf(InStrB(iso, "K") > 0, Len(iso) + 6, Len(iso)) Then Exit Function
+    
     On Error GoTo ReturnFalse
+    
+    For cursor = 1 To formatLength
 
-    dateParts = Split(iso, "T")
-    If Len(dateParts(0)) > 0 Then isoDate = GetDateOrTime(dateParts(0), IIf(InStrB(dateParts(0), ":") = 0, True, False))
-    If UBound(dateParts) = 1 Then isoTime = GetDateOrTime(dateParts(1), False)
+        character = LCase$(Mid$(dateFormat, cursor, 1))
+        tokenCount = 0
 
-    returnedDate = isoDate + isoTime
-    TryParseIso8601Date = True
+        Do While LCase$(Mid$(dateFormat, cursor, 1)) = character And cursor <= formatLength
+            cursor = cursor + 1
+            tokenCount = tokenCount + 1
+        Loop
+
+        subSection = Mid$(iso, (cursor - tokenCount), tokenCount)
+        ignoreDict = tokenCount = 1 And InStrB(":-", subSection) > 0
+
+        dictKey = Mid$(dateFormat, (cursor - tokenCount), tokenCount)
+
+        If Not dict.Exists(dictKey) Or ignoreDict Then
+
+            dict.Item(dictKey) = Null
+
+            Select Case dictKey
+                Case "YYYY", "yyyy"
+                    yearAvailalbe = True
+                    returnedDate = DateSerial(subSection, 1, 1)
+                Case "MM"
+                    If yearAvailalbe Then
+                        returnedDate = DateAdd("m", subSection - 1, returnedDate)
+                    Else
+                        Err.Raise 13, Description:="Invalid ISO-8601 format. Attempted to parse month but year is unavailable."
+                    End If
+                Case "hh"
+                    parsingTime = True
+                    returnedDate = DateAdd("h", subSection, returnedDate)
+                Case "mm"
+                    parsingTime = True
+                    returnedDate = DateAdd("n", subSection, returnedDate)
+                Case "ss"
+                    parsingTime = True
+                    returnedDate = DateAdd("s", subSection, returnedDate)
+                Case "Www"
+                    ' Week of year.
+                    If yearAvailalbe Then
+                        ' Find thursday >=
+                        returnedDate = DateAdd("d", vbThursday - Weekday(returnedDate), returnedDate)
+                        ' Find first Monday <
+                        returnedDate = DateAdd("d", vbMonday - vbThursday, returnedDate)
+                            
+                        returnedDate = DateAdd("ww", Right$(subSection, 2) - 1, returnedDate)
+                        isIsoWeekDate = True
+                    Else
+                        Err.Raise 13, Description:="Bad Format"
+                    End If
+                Case "DDD", "ddd", "DD", "dd", "D", "d"
+                
+                    isOrdinal = Len(subSection) = 3
+                    
+                    If yearAvailalbe Then
+                        returnedDate = DateAdd("d", subSection - 1, returnedDate)
+                    ElseIf isOrdinal Then
+                        Err.Raise 13, Description:="Invalid ISO-8601 format. Year not found for ordinal date. Format as YYYY-DDD or YYYYDDD."
+                    ElseIf isIsoWeekDate Then
+                        Err.Raise 13, Description:="Bad Format"
+                    End If
+                    
+                Case "+", "-"
+                    If parsingTime Then
+                        followingTextIsTimeZoneOffset = True
+                    End If
+                Case "K"
+
+                    subSection = Mid$(iso, cursor, Len(iso) - cursor + 1)
+                    Select Case Left$(subSection, 1)
+                        Case "+"
+                            multiplier = -1
+                        Case "-"
+                            multiplier = 1
+                    End Select
+                    Select Case Len(subSection)
+                        Case 1
+                            If subSection = "Z" Then isUtc = True
+                        Case 3 ' hh
+                            returnedDate = returnedDate + (multiplier * TimeSerial(Right$(subSection, 2), 0, 0))
+                        Case 5, 6 ' hh:mm or hhmm
+                            returnedDate = returnedDate + (multiplier * TimeSerial(Left$(subSection, 2), Right$(subSection, 2), 0))
+                        Case Else
+                            Err.Raise 13, Description:="Bad Format"
+                    End Select
+                    
+                Case "T"
+                    parsingTime = True
+                Case " ", ":"
+                Case "."
+                    Exit For
+                Case Else
+                    Err.Raise 13, Description:="Invalid character found in ISO-8601 format. > " & subSection
+            End Select
+        Else
+            Err.Raise 13, Description:="Bad format. " & dictKey & " already parsed with submitted format."
+        End If
+        cursor = cursor - 1
+    Next cursor
+    
+    TryParseExactIso8601DateUTC = True
     Exit Function
     
 ReturnFalse:
-    TryParseIso8601Date = False
+    TryParseExactIso8601DateUTC = False
 End Function
-Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
+Private Function GetDateOrTime(timestamp$, parseAsDate As Boolean) As Date
 '======================================================================================================================================
 ' Summary
 '       Attempts to parse [timeStamp] as an ISO-8601 date.
@@ -978,27 +1159,27 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
 ' Reference:
 '   https://en.wikipedia.org/wiki/ISO_8601
 '======================================================================================================================================
-    Dim isOrdinalDate As Boolean, isUTC As Boolean, _
+    Dim isOrdinalDate As Boolean, isUtc As Boolean, _
     isBasicFormat As Boolean, timeStampIsWeekDate As Boolean, temp$
 
-    Dim utcYear As Long, utcMonth As Long, utcDay As Long, utcHour As Long, utcMinute As Long, _
-    utcSecond As Long, dayOfYear As Long, weekOfYear As Long, dayOfWeek As Long, timeZoneOffset As Date
+    Dim utcYear As Integer, utcMonth As Integer, utcDay As Integer, utcHour As Integer, utcMinute As Integer, _
+    utcSecond As Integer, dayOfYear As Integer, weekOfYear As Integer, dayOfWeek As Integer, timeZoneOffset As Date
     
     On Error GoTo Propagate
     
     If parseAsDate Then
     
-        isBasicFormat = InStrB(timeStamp, "-") = 0
-        If Not isBasicFormat Then timeStamp = Replace$(timeStamp, "-", vbNullString)
+        isBasicFormat = InStrB(timestamp, "-") = 0
+        If Not isBasicFormat Then timestamp = Replace$(timestamp, "-", vbNullString)
         
-        temp = Trim$(Left$(timeStamp, 4))
+        temp = Trim$(Left$(timestamp, 4))
         
         If Not IsTextValidNumber(temp, 4, False, True, utcYear) Then
              Err.Raise 13, Description:="Incorrect year format."
         End If
 
-        Dim weekNumTokenIndex As Long
-        weekNumTokenIndex = InStr(1, timeStamp, "W")
+        Dim weekNumTokenIndex As Integer
+        weekNumTokenIndex = InStr(1, timestamp, "W")
         timeStampIsWeekDate = weekNumTokenIndex > 0
          
         If timeStampIsWeekDate And weekNumTokenIndex <> 5 Then
@@ -1006,22 +1187,22 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
         End If
         
         ' YYYY-DDD or YYYYDDD
-        isOrdinalDate = (Not timeStampIsWeekDate And Len(timeStamp) = 7)
+        isOrdinalDate = (Not timeStampIsWeekDate And Len(timestamp) = 7)
         'Test if YYYYWww*
         If timeStampIsWeekDate Then
 
-            temp = Trim$(Mid$(timeStamp, weekNumTokenIndex + 1, 2))
+            temp = Trim$(Mid$(timestamp, weekNumTokenIndex + 1, 2))
 
             If Not IsTextValidNumber(temp, 2, False, True, weekOfYear) Then
                 Err.Raise 13, Description:="Incorrect week of year format."
             End If
             
-            If weekNumTokenIndex + 2 < Len(timeStamp) Then dayOfWeek = Right$(timeStamp, 1)
+            If weekNumTokenIndex + 2 < Len(timestamp) Then dayOfWeek = Right$(timestamp, 1)
             GetDateOrTime = GetWeekDate(utcYear, weekOfYear, IIf(dayOfWeek > 0, dayOfWeek, 7))
             
         ElseIf isOrdinalDate Then
             'YYYY-DDD or YYYYDDD
-            temp = Trim$(Right$(timeStamp, 3))
+            temp = Trim$(Right$(timestamp, 3))
 
             If Not IsTextValidNumber(temp, 3, False, True, dayOfYear) Then
                 Err.Raise 13, Description:="Incorrect day of year format."
@@ -1029,18 +1210,18 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
             GetDateOrTime = DateAdd("d", dayOfYear, DateSerial(utcYear, 0, 0))
         Else
             ' YYYY   YYYYMM  YYYYMMDD
-            If Len(timeStamp) = 6 And isBasicFormat Then
+            If Len(timestamp) = 6 And isBasicFormat Then
                 ' Disable YYYYMM but not YYYY-MM
                 Err.Raise 13, Description:="YYYYMM is an invalid format. Use YYYY-MM"
             Else
-                temp = Mid$(timeStamp, 5, Len(timeStamp) - 4)
+                temp = Mid$(timestamp, 5, Len(timestamp) - 4)
                 If Not IsNumeric(temp) Or Len(temp) > 4 Then
                     Err.Raise 13, Description:="Bad format."
                 End If
                 
-                temp = Trim$(Mid$(timeStamp, 5, 2))
+                temp = Trim$(Mid$(timestamp, 5, 2))
                 If IsTextValidNumber(temp, 2, False, True, utcMonth) Then
-                    temp = Trim$(Right$(timeStamp, 2))
+                    temp = Trim$(Right$(timestamp, 2))
                     Call IsTextValidNumber(temp, 2, False, True, utcDay)
                 End If
             End If
@@ -1049,27 +1230,27 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
     Else
         Dim offsetIndex&, i&
         
-        isUTC = InStrB(1, timeStamp, "Z") > 0
-        timeStamp = Replace$(Split(timeStamp, "Z")(0), ":", vbNullString)
-        offsetIndex = InStr(1, timeStamp, "+")
-        If offsetIndex = 0 Then offsetIndex = InStr(1, timeStamp, "-")
+        isUtc = InStrB(1, timestamp, "Z") > 0
+        timestamp = Replace$(Split(timestamp, "Z")(0), ":", vbNullString)
+        offsetIndex = InStr(1, timestamp, "+")
+        If offsetIndex = 0 Then offsetIndex = InStr(1, timestamp, "-")
 
-        For i = 1 To IIf(offsetIndex > 0, offsetIndex - 1, Len(timeStamp)) Step 2
-            If Mid$(timeStamp, i, 1) = "." Then
+        For i = 1 To IIf(offsetIndex > 0, offsetIndex - 1, Len(timestamp)) Step 2
+            If Mid$(timestamp, i, 1) = "." Then
                 ' Can't be represented with the Date Type. Consider either Currency or Double
                 Exit For
             Else
                 Select Case i
                     Case 1
-                        If Not IsTextValidNumber(Left$(timeStamp, 2), 2, False, True, utcHour) Then
+                        If Not IsTextValidNumber(Left$(timestamp, 2), 2, False, True, utcHour) Then
                             Err.Raise 13, Description:="Bad Format"
                         End If
                     Case 3
-                        If Not IsTextValidNumber(Mid$(timeStamp, i, 2), 2, False, True, utcMinute) Then
+                        If Not IsTextValidNumber(Mid$(timestamp, i, 2), 2, False, True, utcMinute) Then
                             Err.Raise 13, Description:="Bad Format"
                         End If
                     Case 5
-                        If Not IsTextValidNumber(Mid$(timeStamp, i, 2), 2, False, True, utcSecond) Then
+                        If Not IsTextValidNumber(Mid$(timestamp, i, 2), 2, False, True, utcSecond) Then
                             Err.Raise 13, Description:="Bad Format"
                         End If
                 End Select
@@ -1080,13 +1261,13 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
 
             Dim timeZoneText$, multiplier As Integer
             
-            If Mid$(timeStamp, offsetIndex, 1) = "+" Then
+            If Mid$(timestamp, offsetIndex, 1) = "+" Then
                 multiplier = -1
             Else
                 multiplier = 1
             End If
 
-            timeZoneText = Mid$(timeStamp, offsetIndex + 1, 4)
+            timeZoneText = Mid$(timestamp, offsetIndex + 1, 4)
             timeZoneOffset = TimeSerial(Left$(timeZoneText, 2), IIf(Len(timeZoneText) = 4, Right$(timeZoneText, 2), 0), 0)
         End If
         GetDateOrTime = TimeSerial(utcHour, utcMinute, utcSecond) + (timeZoneOffset * multiplier)
@@ -1096,17 +1277,8 @@ Private Function GetDateOrTime(timeStamp$, parseAsDate As Boolean) As Date
 Propagate:
     PropagateError Err, "GetDateOrTime"
 End Function
-Private Function IsTextValidNumber(queriedText$, wantedLength&, ensureNumberLength As Boolean, ensureTextLength As Boolean, ByRef returnedNumber As Long) As Boolean
-    ' Trim text beforehand.
-    If ensureTextLength And IsNumeric(queriedText) And Len(queriedText) = wantedLength Then
-        returnedNumber = queriedText
-        IsTextValidNumber = True
-    ElseIf ensureNumberLength And IsNumeric(queriedText) Then
-        returnedNumber = queriedText
-        IsTextValidNumber = IsValueInRange(Abs(returnedNumber) / (10 ^ wantedLength), 0, 1, False) And (Abs(returnedNumber) / (10 ^ (wantedLength - 1))) >= 1
-    End If
-End Function
-Public Function GetWeekDate(calendarYear As Long, weekNumber&, Optional isoDayId As Byte = 7) As Date
+
+Private Function GetWeekDate(calendarYear As Integer, weekNumber As Integer, Optional isoDayId As Integer = 7) As Date
 '======================================================================================================================================
 ' Summary
 '       Gets a date based on a wanted year,week of year and day of week.
@@ -1123,17 +1295,202 @@ Public Function GetWeekDate(calendarYear As Long, weekNumber&, Optional isoDayId
 
     dateBuilder = DateSerial(calendarYear, 1, 1)
 
-    Do Until Weekday(dateBuilder) = vbThursday
-        dateBuilder = DateAdd("d", 1, dateBuilder)
-    Loop
-    ' Now Loop until Previous Sunday
-    Do Until Weekday(dateBuilder) = vbSunday
-        dateBuilder = DateAdd("d", -1, dateBuilder)
-    Loop
-    dateBuilder = DateAdd("ww", weekNumber - 1, dateBuilder)
-    ' ISO labels Monday with a 1.
-    GetWeekDate = DateAdd("d", (isoDayId + 7) Mod 7, dateBuilder)
+    dateBuilder = DateAdd("d", vbThursday - Weekday(dateBuilder), dateBuilder)
+    ' Find first Monday <
+    dateBuilder = DateAdd("d", vbMonday - vbThursday, dateBuilder)
+        
+    GetWeekDate = DateAdd("ww", weekNumber - 1, dateBuilder)
+                        
+End Function
+Private Function TryParseIsoTimestamp(timestamp$, convertToLocalTime As Boolean, output As Date) As Boolean
+
+    Dim stampParts$(), parsedDateTime As SystemTime, segment$(), _
+    millisecondsAvailable As Boolean, isUtc As Boolean, timezoneAvailable As Boolean, _
+    milliSecondLocation As Byte, timeZoneStart As Byte, tempDate As Date, storedMilliseconds As Integer
+    
+    On Error GoTo ExitFunction
+    
+    stampParts = Split(timestamp, "T", 3)
+
+    If UBound(stampParts) = 1 Then
+
+        segment = Split(stampParts(0), "-", 3)
+        
+        If UBound(segment) = 2 Then
+            With parsedDateTime
+            
+                If Not IsTextValidNumber(segment(0), 4, False, True, .wYear) Then Exit Function
+                If Not IsTextValidNumber(segment(1), 2, False, True, .wMonth) Then Exit Function
+                If Not IsTextValidNumber(segment(2), 2, False, True, .wDay) Then Exit Function
+                
+                segment = Split(stampParts(1), ":", 3)
+                
+                If UBound(segment) = 2 Then
+                    
+                    If Not IsTextValidNumber(segment(0), 2, False, True, .wHour) Then Exit Function
+                    If Not IsTextValidNumber(segment(1), 2, False, True, .wMinute) Then Exit Function
+                    If Not IsTextValidNumber(Left$(segment(2), 2), 2, False, True, .wSecond) Then Exit Function
+                    
+                    isUtc = segment(2) Like "*Z" And InStr(segment(2), "Z") = Len(segment(2))
+                                        
+                    If isUtc Then
+                        timeZoneStart = Len(segment(2))
+                    Else
+                        timeZoneStart = InStr(segment(2), "-")
+                        If timeZoneStart = 0 Then timeZoneStart = InStr(segment(2), "+")
+                    End If
+                                        
+                    timezoneAvailable = timeZoneStart <> 0
+                    milliSecondLocation = InStr(segment(2), ".")
+                    
+                    If milliSecondLocation > 0 Then
+                        If timezoneAvailable Then
+                            .wMilliseconds = Mid$(segment(2), (milliSecondLocation + 1), timeZoneStart - (milliSecondLocation + 1))
+                        Else
+                            .wMilliseconds = Mid$(segment(2), (milliSecondLocation + 1), (1 + Len(segment(2))) - (milliSecondLocation + 1))
+                        End If
+                        storedMilliseconds = .wMilliseconds
+                    End If
+                    
+                    If timezoneAvailable And Not isUtc Then
+                    
+                        Dim multiplier As Integer
+                        
+                        Select Case Mid$(segment(2), timeZoneStart, 1)
+                            Case "-"
+                                multiplier = 1
+                            Case "+"
+                                multiplier = -1
+                        End Select
+                                                                        
+                        Dim minutesCountOffset As Integer
+                        minutesCountOffset = Mid$(segment(2), timeZoneStart + 1, 2) * 60
+                        
+                        tempDate = ConvertSystemTimeToDate(parsedDateTime) + (multiplier * TimeSerial(0, minutesCountOffset, 0))
+                        
+                        If timeZoneStart + 2 < Len(segment(2)) Then
+                            minutesCountOffset = Right$(segment(2), 2)
+                            tempDate = tempDate + (multiplier * TimeSerial(0, minutesCountOffset, 0))
+                        End If
+                                                
+                        parsedDateTime = ConvertDateToSystemTime(tempDate)
+                        .wMilliseconds = storedMilliseconds
+                    End If
+                    
+                    .wDayOfWeek = Weekday(DateSerial(.wYear, .wMonth, .wDay)) - 1
+                    
+                    If convertToLocalTime Then
+                        #If Mac Then
+                            output = utc_ConvertDate(convertedDate, False)
+                        #Else
+                        
+                            Dim tz As TimeZoneInformation, localTime As SystemTime
+                            
+                            Call GetTimeZoneInformation(tz)
+                            SystemTimeToTzSpecificLocalTime tz, parsedDateTime, localTime
+                            output = ConvertSystemTimeToDate(localTime)
+                            
+                        #End If
+                    Else
+                        output = ConvertSystemTimeToDate(parsedDateTime)
+                    End If
+                    TryParseIsoTimestamp = True
+                End If
+                
+            End With
+        End If
+    End If
+ExitFunction:
 
 End Function
+Private Function ConvertSystemTimeToDate(timeToConvert As SystemTime) As Date
+    With timeToConvert
+        ConvertSystemTimeToDate = DateSerial(.wYear, .wMonth, .wDay) + TimeSerial(.wHour, .wMinute, .wSecond)
+    End With
+End Function
+Private Function ConvertDateToSystemTime(timeToConvert As Date) As SystemTime
+    With ConvertDateToSystemTime
+        .wYear = Year(timeToConvert)
+        .wMonth = Month(timeToConvert)
+        .wDay = Day(timeToConvert)
+        .wHour = Hour(timeToConvert)
+        .wMinute = Minute(timeToConvert)
+        .wSecond = Second(timeToConvert)
+    End With
+End Function
+Private Function ConvertLocalDatetimeToUTC(convertedDate As Date) As Date
+    Dim tz As TimeZoneInformation, utcTime As SystemTime
+    
+    #If Mac Then
+        ConvertLocalDatetimeToUTC = utc_ConvertDate(convertedDate, True)
+    #Else
+        Call GetTimeZoneInformation(tz)
+        Call TzSpecificLocalTimeToSystemTime(tz, ConvertDateToSystemTime(convertedDate), utcTime)
+        ConvertLocalDatetimeToUTC = ConvertSystemTimeToDate(utcTime)
+    #End If
+    
+End Function
 
+#If Mac Then
 
+    Private Function utc_ConvertDate(utc_Value As Date, Optional utc_ConvertToUtc As Boolean = False) As Date
+        Dim utc_ShellCommand As String
+        Dim utc_Result As utc_ShellResult
+        Dim utc_Parts() As String
+        Dim utc_DateParts() As String
+        Dim utc_TimeParts() As String
+    
+        If utc_ConvertToUtc Then
+            utc_ShellCommand = "date -ur `date -jf '%Y-%m-%d %H:%M:%S' " & _
+                "'" & VBA.Format$(utc_Value, "yyyy-mm-dd HH:mm:ss") & "' " & _
+                " +'%s'` +'%Y-%m-%d %H:%M:%S'"
+        Else
+            utc_ShellCommand = "date -jf '%Y-%m-%d %H:%M:%S %z' " & _
+                "'" & VBA.Format$(utc_Value, "yyyy-mm-dd HH:mm:ss") & " +0000' " & _
+                "+'%Y-%m-%d %H:%M:%S'"
+        End If
+    
+        utc_Result = utc_ExecuteInShell(utc_ShellCommand)
+    
+        If utc_Result.utc_Output = "" Then
+            Err.Raise 10015, "UtcConverter.utc_ConvertDate", "'date' command failed"
+        Else
+            utc_Parts = Split(utc_Result.utc_Output, " ")
+            utc_DateParts = Split(utc_Parts(0), "-")
+            utc_TimeParts = Split(utc_Parts(1), ":")
+    
+            utc_ConvertDate = DateSerial(utc_DateParts(0), utc_DateParts(1), utc_DateParts(2)) + _
+                TimeSerial(utc_TimeParts(0), utc_TimeParts(1), utc_TimeParts(2))
+        End If
+    End Function
+    
+    Private Function utc_ExecuteInShell(utc_ShellCommand As String) As String
+        
+        #If VBA7 Then
+            Dim utc_File As LongPtr
+            Dim utc_Read As LongPtr
+        #Else
+            Dim utc_File As Long
+            Dim utc_Read As Long
+        #End If
+    
+        Dim utc_Chunk As String
+    
+        On Error GoTo utc_ErrorHandling
+        utc_File = popen(utc_ShellCommand, "r")
+    
+        If utc_File = 0 Then: Exit Function
+    
+        Do While feof(utc_File) = 0
+            utc_Chunk = VBA.Space$(50)
+            utc_Read = CLng(fread(utc_Chunk, 1, Len(utc_Chunk) - 1, utc_File))
+            If utc_Read > 0 Then
+                utc_Chunk = VBA.Left$(utc_Chunk, CLng(utc_Read))
+                utc_ExecuteInShell = utc_ExecuteInShell & utc_Chunk
+            End If
+        Loop
+    
+utc_ErrorHandling:
+        
+    End Function
+#End If
