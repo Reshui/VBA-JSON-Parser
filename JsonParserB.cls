@@ -299,13 +299,16 @@ Public Function Serialize(container As Object, encloseStringsInEscapedQuotes As 
 '   [encloseStringsInEscapedQuotes] - True to enclose text in escaped quotes instead of unescaped quotes.
 '        Example: {\"hello\":1} instead of {"hello":1}
 '=======================================================================================================================================
-    Dim output$, cursorLocation&, isContainerJsonObject As Boolean, keyOrIndex() As Variant, _
+    Dim output$, cursorLocation&, isContainerJsonObject As Boolean, keyOrIndex() As Variant, valuesAvailalbe As Boolean, _
     iCount&, isValueString As Boolean, variableQuote$, currentIndent&, whitespaceL1$, whitespaceL2$, isValueDate As Boolean
     
     variableQuote = IIf(encloseStringsInEscapedQuotes, "\""", """")
-
+    
     output = String$(1000, " ")
-        
+    valuesAvailalbe = True
+    
+    On Error GoTo NoValuesAvailable
+    
     If TypeName(container) = "Dictionary" Then
         isContainerJsonObject = True
         keyOrIndex = container.keys
@@ -315,9 +318,12 @@ Public Function Serialize(container As Object, encloseStringsInEscapedQuotes As 
             keyOrIndex(iCount) = iCount
         Next iCount
     Else
+        On Error GoTo 0
         Err.Raise 13, "Serialize", "Container must be either a Collection or Dictionary."
     End If
     
+DetermineIndent:
+    On Error GoTo 0
     If prettyPrint Then
         If indentLevel <> 0 Then whitespaceL1 = Space$(indentLevel * 4)
         whitespaceL2 = Space$((indentLevel + 1) * 4)
@@ -330,52 +336,59 @@ Public Function Serialize(container As Object, encloseStringsInEscapedQuotes As 
     Else
         OverwriteBufferSegment output, LeftSquare, cursorLocation
     End If
-           
-    With container
-        For iCount = LBound(keyOrIndex) To UBound(keyOrIndex)
-            
-            If isContainerJsonObject Then
-            
-                If prettyPrint Then OverwriteBufferSegment output, whitespaceL2, cursorLocation
+    
+    If valuesAvailalbe Then
+        With container
+            For iCount = LBound(keyOrIndex) To UBound(keyOrIndex)
                 
-                OverwriteBufferSegment output, variableQuote, cursorLocation
-                OverwriteBufferSegment output, CStr(keyOrIndex(iCount)), cursorLocation, True
-                OverwriteBufferSegment output, variableQuote, cursorLocation
-                OverwriteBufferSegment output, ColonCharacter, cursorLocation
+                If isContainerJsonObject Then
                 
-            End If
-                
-            If IsObject(.Item(keyOrIndex(iCount))) Then
-                
-                If Not isContainerJsonObject And prettyPrint Then
-                    OverwriteBufferSegment output, vbNewLine, cursorLocation
+                    If prettyPrint Then OverwriteBufferSegment output, whitespaceL2, cursorLocation
+                    
+                    OverwriteBufferSegment output, variableQuote, cursorLocation
+                    OverwriteBufferSegment output, CStr(keyOrIndex(iCount)), cursorLocation, True
+                    OverwriteBufferSegment output, variableQuote, cursorLocation
+                    OverwriteBufferSegment output, ColonCharacter, cursorLocation
+                    
                 End If
-                OverwriteBufferSegment output, Serialize(.Item(keyOrIndex(iCount)), encloseStringsInEscapedQuotes, prettyPrint, indentLevel + 1), cursorLocation
-            
-            Else
-            
-                isValueDate = IsDate(.Item(keyOrIndex(iCount)))
-                isValueString = isValueDate Or VarType(.Item(keyOrIndex(iCount))) = vbString
-                           
-                If isValueString Then OverwriteBufferSegment output, variableQuote, cursorLocation
-                OverwriteBufferSegment output, IIf(isValueDate, Format$(.Item(keyOrIndex(iCount)), "yyyy-mm-ddThh:mm:ss"), .Item(keyOrIndex(iCount))), cursorLocation, isValueString
-                If isValueString Then OverwriteBufferSegment output, variableQuote, cursorLocation
+                    
+                If IsObject(.Item(keyOrIndex(iCount))) Then
+                    
+                    If Not isContainerJsonObject And prettyPrint Then
+                        OverwriteBufferSegment output, vbNewLine, cursorLocation
+                    End If
+                    OverwriteBufferSegment output, Serialize(.Item(keyOrIndex(iCount)), encloseStringsInEscapedQuotes, prettyPrint, indentLevel + 1), cursorLocation
                 
-            End If
-
-            If iCount <> UBound(keyOrIndex) Then
-                OverwriteBufferSegment output, Comma, cursorLocation
-            End If
-            
-            If prettyPrint And isContainerJsonObject Then OverwriteBufferSegment output, vbNewLine, cursorLocation
-            
-        Next iCount
-    End With
+                Else
+                
+                    isValueDate = IsDate(.Item(keyOrIndex(iCount)))
+                    isValueString = isValueDate Or VarType(.Item(keyOrIndex(iCount))) = vbString
+                               
+                    If isValueString Then OverwriteBufferSegment output, variableQuote, cursorLocation
+                    OverwriteBufferSegment output, IIf(isValueDate, Format$(.Item(keyOrIndex(iCount)), "yyyy-mm-ddThh:mm:ss"), .Item(keyOrIndex(iCount))), cursorLocation, isValueString
+                    If isValueString Then OverwriteBufferSegment output, variableQuote, cursorLocation
+                    
+                End If
+    
+                If iCount <> UBound(keyOrIndex) Then
+                    OverwriteBufferSegment output, Comma, cursorLocation
+                End If
+                
+                If prettyPrint And isContainerJsonObject Then OverwriteBufferSegment output, vbNewLine, cursorLocation
+                
+            Next iCount
+        End With
+    End If
     
     If prettyPrint And indentLevel <> 0 Then OverwriteBufferSegment output, whitespaceL1, cursorLocation
-    
     OverwriteBufferSegment output, IIf(isContainerJsonObject, RightCurly, RightSquare), cursorLocation
+    
     Serialize = Left$(output, cursorLocation)
+    Exit Function
+    
+NoValuesAvailable:
+    valuesAvailalbe = False
+    Resume DetermineIndent
 End Function
 
 Private Sub CreateObjectOnStack(stack As Collection, createJsonObject As Boolean)
@@ -968,13 +981,13 @@ Private Sub OverwriteBufferSegment(buffer$, textToAdd$, cursor&, Optional proces
         
     If LenB(textToAdd) > 0 Then
         If processFurther Then
+            If InStrB(1, textToAdd, BackslashCharacter) > 0 Then textToAdd = Replace$(textToAdd, BackslashCharacter, "\\")
             If InStrB(1, textToAdd, vbTab) > 0 Then textToAdd = Replace$(textToAdd, vbTab, "\t")
             If InStrB(1, textToAdd, QuoteCharacter) > 0 Then textToAdd = Replace$(textToAdd, QuoteCharacter, "\""")
             If InStrB(1, textToAdd, vbCr) > 0 Then textToAdd = Replace$(textToAdd, vbCr, "\r")
             If InStrB(1, textToAdd, vbBack) > 0 Then textToAdd = Replace$(textToAdd, vbBack, "\b")
             If InStrB(1, textToAdd, vbLf) > 0 Then textToAdd = Replace$(textToAdd, vbLf, "\n")
             If InStrB(1, textToAdd, vbFormFeed) > 0 Then textToAdd = Replace$(textToAdd, vbFormFeed, "\f")
-            If InStrB(1, textToAdd, BackslashCharacter) > 0 Then textToAdd = Replace$(textToAdd, BackslashCharacter, "\\")
             'To Do: Convert Unicode characters.
     '        #If Mac Then
     '
