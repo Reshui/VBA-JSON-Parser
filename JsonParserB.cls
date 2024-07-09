@@ -95,7 +95,10 @@ QuoteCharacter$ = """", BackslashCharacter$ = "\", SpaceCharacter$ = " ", ColonC
 
 Private pConvertStampsToDate As Boolean
 Private pSpecialCharactersA$(6)
+
 Public pConvertDatesToUTC As Boolean
+Public pConvertToLocalTime As Boolean
+
 #Const DebugActive = False
 
 Private Sub Class_Initialize()
@@ -104,7 +107,7 @@ Private Sub Class_Initialize()
     pSpecialCharactersA(4) = vbLf: pSpecialCharactersA(5) = VBA.vbBack: pSpecialCharactersA(6) = VBA.vbFormFeed
 End Sub
 
-Public Function Deserialize(ByRef json$, Optional convertTimeStampsToDate As Boolean = False, Optional convertDatesToUTC As Boolean = False) As Object
+Public Function Deserialize(ByRef json$, Optional convertTimeStampsToDate As Boolean = False, Optional convertDatesToUTC As Boolean = False, Optional convertUtcToLocal As Boolean) As Object
 '========================================================================================================================================
 ' Summary : Deserializes a json string.
 ' Paramaters :
@@ -115,12 +118,15 @@ Public Function Deserialize(ByRef json$, Optional convertTimeStampsToDate As Boo
 '========================================================================================================================================
     pConvertStampsToDate = convertTimeStampsToDate
     pConvertDatesToUTC = convertDatesToUTC
+    pConvertToLocalTime = convertUtcToLocal
+    
     Set Deserialize = ParseJsonString(json)
 End Function
-Public Function DeserializeBytes(ByRef jsonBytes() As Byte, Optional convertTimeStampsToDate As Boolean = False, Optional convertDatesToUTC As Boolean = False) As Object
+Public Function DeserializeBytes(ByRef jsonBytes() As Byte, Optional convertTimeStampsToDate As Boolean = False, Optional convertDatesToUTC As Boolean = False, Optional convertUtcToLocal As Boolean) As Object
     'Warning bytes must be UTF-16
     pConvertStampsToDate = convertTimeStampsToDate
     pConvertDatesToUTC = convertDatesToUTC
+    pConvertToLocalTime = convertUtcToLocal
     Set DeserializeBytes = ParseJsonString(CStr(jsonBytes))
 End Function
 
@@ -548,7 +554,7 @@ Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As
         ElseIf isValueString Then
         
             If pConvertStampsToDate Then
-                If TryParseExactIso8601DateUTC(value, isoDate) Then
+                If TryParseIsoTimestamp(value, pConvertToLocalTime, pConvertDatesToUTC, isoDate) Then
                     If isContainerJsonObject Then
                         containerObject.Item(keyForValue) = isoDate
                     Else
@@ -1025,7 +1031,7 @@ Public Function TryParseExactIso8601DateUTC(iso$, returnedDate As Date, Optional
     Dim dateParts$(), isoDate As Date, isoTime As Date
     
     Dim dict As Object, ignoreDict As Boolean, isIsoWeekDate As Boolean, isUtc As Boolean, parsingTime As Boolean, dictKey$, _
-    character$, cursor As Byte, tokenCount As Byte, followingTextIsTimeZoneOffset As Boolean, subSection$, formatLength As Byte, multiplier As Integer, _
+    character$, cursor As Byte, tokenCount As Byte, followingTextIsTimeZoneOffset As Boolean, subSection$, formatLength As Byte, offsetMultiplier As Integer, _
     yearAvailalbe As Boolean, isOrdinal As Boolean
 
     #If Mac Then
@@ -1112,17 +1118,17 @@ Public Function TryParseExactIso8601DateUTC(iso$, returnedDate As Date, Optional
                     subSection = Mid$(iso, cursor, Len(iso) - cursor + 1)
                     Select Case Left$(subSection, 1)
                         Case "+"
-                            multiplier = -1
+                            offsetMultiplier = -1
                         Case "-"
-                            multiplier = 1
+                            offsetMultiplier = 1
                     End Select
                     Select Case Len(subSection)
                         Case 1
                             If subSection = "Z" Then isUtc = True
                         Case 3 ' hh
-                            returnedDate = returnedDate + (multiplier * TimeSerial(Right$(subSection, 2), 0, 0))
+                            returnedDate = returnedDate + (offsetMultiplier * TimeSerial(Right$(subSection, 2), 0, 0))
                         Case 5, 6 ' hh:mm or hhmm
-                            returnedDate = returnedDate + (multiplier * TimeSerial(Left$(subSection, 2), Right$(subSection, 2), 0))
+                            returnedDate = returnedDate + (offsetMultiplier * TimeSerial(Left$(subSection, 2), Right$(subSection, 2), 0))
                         Case Else
                             Err.Raise 13, Description:="Bad Format"
                     End Select
@@ -1259,18 +1265,18 @@ Private Function GetDateOrTime(timestamp$, parseAsDate As Boolean) As Date
 
         If offsetIndex > 0 And pConvertDatesToUTC Then
 
-            Dim timeZoneText$, multiplier As Integer
+            Dim timeZoneText$, offsetMultiplier As Integer
             
             If Mid$(timestamp, offsetIndex, 1) = "+" Then
-                multiplier = -1
+                offsetMultiplier = -1
             Else
-                multiplier = 1
+                offsetMultiplier = 1
             End If
 
             timeZoneText = Mid$(timestamp, offsetIndex + 1, 4)
             timeZoneOffset = TimeSerial(Left$(timeZoneText, 2), IIf(Len(timeZoneText) = 4, Right$(timeZoneText, 2), 0), 0)
         End If
-        GetDateOrTime = TimeSerial(utcHour, utcMinute, utcSecond) + (timeZoneOffset * multiplier)
+        GetDateOrTime = TimeSerial(utcHour, utcMinute, utcSecond) + (timeZoneOffset * offsetMultiplier)
     End If
     
     Exit Function
@@ -1302,7 +1308,7 @@ Private Function GetWeekDate(calendarYear As Integer, weekNumber As Integer, Opt
     GetWeekDate = DateAdd("ww", weekNumber - 1, dateBuilder)
                         
 End Function
-Private Function TryParseIsoTimestamp(timestamp$, convertToLocalTime As Boolean, output As Date) As Boolean
+Public Function TryParseIsoTimestamp(timestamp$, convertToLocalTime As Boolean, convertToUtc As Boolean, output As Date) As Boolean
 
     Dim stampParts$(), parsedDateTime As SystemTime, segment$(), _
     millisecondsAvailable As Boolean, isUtc As Boolean, timezoneAvailable As Boolean, _
@@ -1345,32 +1351,27 @@ Private Function TryParseIsoTimestamp(timestamp$, convertToLocalTime As Boolean,
                     
                     If milliSecondLocation > 0 Then
                         If timezoneAvailable Then
-                            .wMilliseconds = Mid$(segment(2), (milliSecondLocation + 1), timeZoneStart - (milliSecondLocation + 1))
+                            .wMilliseconds = Left$(Mid$(segment(2), (milliSecondLocation + 1), timeZoneStart - (milliSecondLocation + 1)), 3)
                         Else
-                            .wMilliseconds = Mid$(segment(2), (milliSecondLocation + 1), (1 + Len(segment(2))) - (milliSecondLocation + 1))
+                            .wMilliseconds = Mid$(segment(2), (milliSecondLocation + 1), 3)
                         End If
                         storedMilliseconds = .wMilliseconds
                     End If
                     
-                    If timezoneAvailable And Not isUtc Then
+                    If timezoneAvailable And Not isUtc And convertToUtc Then
                     
-                        Dim multiplier As Integer
+                        Dim offsetMultiplier As Integer
                         
-                        Select Case Mid$(segment(2), timeZoneStart, 1)
-                            Case "-"
-                                multiplier = 1
-                            Case "+"
-                                multiplier = -1
-                        End Select
+                        offsetMultiplier = IIf(Mid$(segment(2), timeZoneStart, 1) = "+", -1, 1)
                                                                         
                         Dim minutesCountOffset As Integer
                         minutesCountOffset = Mid$(segment(2), timeZoneStart + 1, 2) * 60
                         
-                        tempDate = ConvertSystemTimeToDate(parsedDateTime) + (multiplier * TimeSerial(0, minutesCountOffset, 0))
+                        tempDate = ConvertSystemTimeToDate(parsedDateTime) + (offsetMultiplier * TimeSerial(0, minutesCountOffset, 0))
                         
                         If timeZoneStart + 2 < Len(segment(2)) Then
                             minutesCountOffset = Right$(segment(2), 2)
-                            tempDate = tempDate + (multiplier * TimeSerial(0, minutesCountOffset, 0))
+                            tempDate = tempDate + (offsetMultiplier * TimeSerial(0, minutesCountOffset, 0))
                         End If
                                                 
                         parsedDateTime = ConvertDateToSystemTime(tempDate)
