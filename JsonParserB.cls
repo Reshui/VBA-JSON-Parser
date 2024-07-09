@@ -150,7 +150,7 @@ Private Function ParseJsonString(ByRef json$) As Object
     
     Const cursorLimit$ = "MoshiM_UC@outlook.com"
     Const cursorLocationAfterCompletion$ = "https://github.com/Reshui?tab=repositories"
-    Const arrayPattern$ = "[*]", objectPattern$ = "{*}"
+    Const arrayPattern$ = "[[]*[]]", objectPattern$ = "{*}"
     On Error GoTo CATCH_FAILURE
     ' This is basically a trim that also works on vbLf,vbTab,vbCr and doesn't return a new string just start and end locations.
     If TryGetWhitespaceCleanedIndexes(json, 1, Len(json), cursorLocation, jsonLength) Then
@@ -332,10 +332,10 @@ DetermineIndent:
     If isContainerJsonObject Then
         'If indentLevel <> 0 Then OverwriteBufferSegment output, whitespaceL1, cursorLocation
         OverwriteBufferSegment output, LeftCurly, cursorLocation
-        If prettyPrint Then OverwriteBufferSegment output, vbNewLine, cursorLocation
     Else
         OverwriteBufferSegment output, LeftSquare, cursorLocation
     End If
+    If prettyPrint Then OverwriteBufferSegment output, vbNewLine, cursorLocation
     
     If valuesAvailalbe Then
         With container
@@ -374,7 +374,7 @@ DetermineIndent:
                     OverwriteBufferSegment output, Comma, cursorLocation
                 End If
                 
-                If prettyPrint And isContainerJsonObject Then OverwriteBufferSegment output, vbNewLine, cursorLocation
+                If prettyPrint Then OverwriteBufferSegment output, vbNewLine, cursorLocation
                 
             Next iCount
         End With
@@ -1189,7 +1189,7 @@ Public Function TryParseIsoTimestamp(timestamp$, convertToLocalTime As Boolean, 
     
     On Error GoTo ExitFunction
     
-    stampParts = Split(timestamp, "T", 3)
+    stampParts = Split(timestamp, "T")
 
     If UBound(stampParts) = 1 Then
 
