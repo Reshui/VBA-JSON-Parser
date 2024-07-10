@@ -429,18 +429,19 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
     Dim maxIndexBinary&, nextCurlyCloseBinary&, nextCurlyOpenBinary&, previousCloseBinary&, tokenIndicator$(1), nextEnclosingTokenIndex&, escapeEnclosingArrayOrObject As Boolean
 
     On Error GoTo Propagate
-    currentIndexBinary = ConvertToBinaryIndex(cursorLocation)
-    maxIndexBinary = ConvertToBinaryIndex(maxCursorLocation)
-    ' Search for tokens starting at currentIndexBinary + offset.
-    nextCurlyOpenBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, LeftCurly)
-    nextCurlyCloseBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, RightCurly)
-    nextSquareOpenBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, LeftSquare)
-    nextSquareCloseBinary = InStrB(currentIndexBinary + BINARY_OFFSET, json, RightSquare)
+    
+    nextCurlyOpenBinary = SeekNextUnquotedBinaryCharacterIndex(json, LeftCurly, cursorLocation + INDEX_OFFSET, maxCursorLocation)
+    nextCurlyCloseBinary = SeekNextUnquotedBinaryCharacterIndex(json, RightCurly, cursorLocation + INDEX_OFFSET, maxCursorLocation)
+    nextSquareOpenBinary = SeekNextUnquotedBinaryCharacterIndex(json, LeftSquare, cursorLocation + INDEX_OFFSET, maxCursorLocation)
+    nextSquareCloseBinary = SeekNextUnquotedBinaryCharacterIndex(json, RightSquare, cursorLocation + INDEX_OFFSET, maxCursorLocation)
+    
     nextValidCommaTokenIndexBinary = SeekNextUnquotedBinaryCharacterIndex(json, Comma, cursorLocation + INDEX_OFFSET, maxCursorLocation)
-
     If nextValidCommaTokenIndexBinary > 0 Then nextEnclosingTokenIndex = ConvertFromBinaryIndex(nextValidCommaTokenIndexBinary)
 
     If nextValidCommaTokenIndexBinary > 0 Then
+        
+        currentIndexBinary = ConvertToBinaryIndex(cursorLocation)
+        maxIndexBinary = ConvertToBinaryIndex(maxCursorLocation)
         '======================================================================================================================================
         ' Determine which of [ or { is greater than cursorLocation AND appears first.
         ' If nextValidCommaTokenIndexBinary is greater than that byte,
