@@ -434,8 +434,8 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
     nextCurlyCloseBinary = SeekNextUnquotedBinaryCharacterIndex(json, RightCurly, cursorLocation + INDEX_OFFSET, maxCursorLocation)
     nextSquareOpenBinary = SeekNextUnquotedBinaryCharacterIndex(json, LeftSquare, cursorLocation + INDEX_OFFSET, maxCursorLocation)
     nextSquareCloseBinary = SeekNextUnquotedBinaryCharacterIndex(json, RightSquare, cursorLocation + INDEX_OFFSET, maxCursorLocation)
-    
     nextValidCommaTokenIndexBinary = SeekNextUnquotedBinaryCharacterIndex(json, Comma, cursorLocation + INDEX_OFFSET, maxCursorLocation)
+    
     If nextValidCommaTokenIndexBinary > 0 Then nextEnclosingTokenIndex = ConvertFromBinaryIndex(nextValidCommaTokenIndexBinary)
 
     If nextValidCommaTokenIndexBinary > 0 Then
@@ -488,7 +488,7 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
             nextEnclosingTokenIndex = maxCursorLocation
     End Select
     
-    If InStrB(1, ",]}", Mid$(json, nextEnclosingTokenIndex, 1)) = 0 Then
+    If InStrB(",]}", Mid$(json, nextEnclosingTokenIndex, 1)) = 0 Then
         Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid JSON format. Expected one of ',' or ']' or '}'. Calculated token index doesn't reference a value delimiter: " & Mid$(json, nextEnclosingTokenIndex, 1)
     End If
     
@@ -1029,14 +1029,16 @@ Private Sub OverwriteBufferSegment(buffer$, textToAdd$, cursor&, Optional proces
     End If
     
 End Sub
-Private Function IsTextValidNumber(queriedText$, wantedLength&, ensureNumberLength As Boolean, ensureTextLength As Boolean, ByRef returnedNumber As Integer) As Boolean
+Private Function IsTextValidInteger(queriedText$, wantedLength&, ensureNumberLength As Boolean, ensureTextLength As Boolean, ByRef returnedNumber As Integer) As Boolean
     ' Trim text beforehand.
-    If ensureTextLength And IsNumeric(queriedText) And Len(queriedText) = wantedLength Then
-        returnedNumber = queriedText
-        IsTextValidNumber = True
-    ElseIf ensureNumberLength And IsNumeric(queriedText) Then
-        returnedNumber = queriedText
-        IsTextValidNumber = IsValueInRange(Abs(returnedNumber) / (10 ^ wantedLength), 0, 1, False) And (Abs(returnedNumber) / (10 ^ (wantedLength - 1))) >= 1
+    If Not (InStrB(queriedText, "$") > 0 Or InStrB(queriedText, "+") > 0 Or InStrB(queriedText, "-") > 0 Or InStrB(queriedText, ".") > 0) Then
+        If ensureTextLength And IsNumeric(queriedText) And Len(queriedText) = wantedLength Then
+            returnedNumber = queriedText
+            IsTextValidInteger = True
+        ElseIf ensureNumberLength And IsNumeric(queriedText) Then
+            returnedNumber = queriedText
+            IsTextValidInteger = IsValueInRange(Abs(returnedNumber) / (10 ^ wantedLength), 0, 1, False) And (Abs(returnedNumber) / (10 ^ (wantedLength - 1))) >= 1
+        End If
     End If
 End Function
 Public Function TryParseExactIso8601DateUTC(iso$, convertToUTC As Boolean, convertToLocalTime As Boolean, returnedDate As Date, Optional ByVal dateFormat$) As Boolean
@@ -1206,17 +1208,17 @@ Public Function TryParseIsoTimestamp(timestamp$, convertToLocalTime As Boolean, 
         If UBound(segment) = 2 Then
             With parsedDateTime
             
-                If Not IsTextValidNumber(segment(0), 4, False, True, .wYear) Then Exit Function
-                If Not IsTextValidNumber(segment(1), 2, False, True, .wMonth) Then Exit Function
-                If Not IsTextValidNumber(segment(2), 2, False, True, .wDay) Then Exit Function
+                If Not IsTextValidInteger(segment(0), 4, False, True, .wYear) Then Exit Function
+                If Not IsTextValidInteger(segment(1), 2, False, True, .wMonth) Then Exit Function
+                If Not IsTextValidInteger(segment(2), 2, False, True, .wDay) Then Exit Function
                 
                 segment = Split(stampParts(1), ":", 3)
                 
                 If UBound(segment) = 2 Then
                     
-                    If Not IsTextValidNumber(segment(0), 2, False, True, .wHour) Then Exit Function
-                    If Not IsTextValidNumber(segment(1), 2, False, True, .wMinute) Then Exit Function
-                    If Not IsTextValidNumber(Left$(segment(2), 2), 2, False, True, .wSecond) Then Exit Function
+                    If Not IsTextValidInteger(segment(0), 2, False, True, .wHour) Then Exit Function
+                    If Not IsTextValidInteger(segment(1), 2, False, True, .wMinute) Then Exit Function
+                    If Not IsTextValidInteger(Left$(segment(2), 2), 2, False, True, .wSecond) Then Exit Function
                     
                     isUtc = segment(2) Like "*Z" And InStr(segment(2), "Z") = Len(segment(2))
                                         
