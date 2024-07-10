@@ -365,10 +365,12 @@ DetermineIndent:
                     Select Case .Item(keyOrIndex(iCount))
                         Case True, False
                             OverwriteBufferSegment output, LCase$(.Item(keyOrIndex(iCount))), cursorLocation, isValueString
-                        Case Null
-                            OverwriteBufferSegment output, "null", cursorLocation, isValueString
                         Case Else
-                            OverwriteBufferSegment output, IIf(isValueDate, Format$(.Item(keyOrIndex(iCount)), "yyyy-mm-ddThh:mm:ss"), .Item(keyOrIndex(iCount))), cursorLocation, isValueString
+                            If IsNull(.Item(keyOrIndex(iCount))) Then
+                                OverwriteBufferSegment output, "null", cursorLocation, isValueString
+                            Else
+                                OverwriteBufferSegment output, IIf(isValueDate, Format$(.Item(keyOrIndex(iCount)), "yyyy-mm-ddThh:mm:ss"), .Item(keyOrIndex(iCount))), cursorLocation, isValueString
+                            End If
                     End Select
                     
                     If isValueString Then OverwriteBufferSegment output, variableQuote, cursorLocation
@@ -603,7 +605,7 @@ Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As
                     Else
                         containerObject.Add CBool(value)
                     End If
-                Case "null", vbNullString
+                Case "null"
                     If isContainerJsonObject Then
                         containerObject.Item(keyForValue) = Null
                     Else
@@ -1252,6 +1254,7 @@ Public Function TryParseIsoTimestamp(timestamp$, convertToLocalTime As Boolean, 
                                                 
                         parsedDateTime = ConvertDateToSystemTime(tempDate)
                         .wMilliseconds = storedMilliseconds
+                        
                     End If
                     
                     .wDayOfWeek = Weekday(DateSerial(.wYear, .wMonth, .wDay)) - 1
@@ -1364,8 +1367,9 @@ End Function
                 utc_ExecuteInShell = utc_ExecuteInShell & utc_Chunk
             End If
         Loop
-    
-utc_ErrorHandling:
         
+        Exit Function
+utc_ErrorHandling:
+        PropagateError Err, "utc_ExecuteShell"
     End Function
 #End If
