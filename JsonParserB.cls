@@ -341,31 +341,36 @@ DetermineIndent:
         With container
             For iCount = LBound(keyOrIndex) To UBound(keyOrIndex)
                 
-                If isContainerJsonObject Then
+                If prettyPrint Then OverwriteBufferSegment output, whitespaceL2, cursorLocation
                 
-                    If prettyPrint Then OverwriteBufferSegment output, whitespaceL2, cursorLocation
-                    
+                If isContainerJsonObject Then
                     OverwriteBufferSegment output, variableQuote, cursorLocation
                     OverwriteBufferSegment output, CStr(keyOrIndex(iCount)), cursorLocation, True
                     OverwriteBufferSegment output, variableQuote, cursorLocation
                     OverwriteBufferSegment output, ColonCharacter, cursorLocation
-                    
                 End If
                     
                 If IsObject(.Item(keyOrIndex(iCount))) Then
-                    
                     If Not isContainerJsonObject And prettyPrint Then
                         OverwriteBufferSegment output, vbNewLine, cursorLocation
                     End If
                     OverwriteBufferSegment output, Serialize(.Item(keyOrIndex(iCount)), encloseStringsInEscapedQuotes, prettyPrint, indentLevel + 1), cursorLocation
-                
                 Else
                 
                     isValueDate = IsDate(.Item(keyOrIndex(iCount)))
                     isValueString = isValueDate Or VarType(.Item(keyOrIndex(iCount))) = vbString
                                
                     If isValueString Then OverwriteBufferSegment output, variableQuote, cursorLocation
-                    OverwriteBufferSegment output, IIf(isValueDate, Format$(.Item(keyOrIndex(iCount)), "yyyy-mm-ddThh:mm:ss"), .Item(keyOrIndex(iCount))), cursorLocation, isValueString
+                    
+                    Select Case .Item(keyOrIndex(iCount))
+                        Case True, False
+                            OverwriteBufferSegment output, LCase$(.Item(keyOrIndex(iCount))), cursorLocation, isValueString
+                        Case Null
+                            OverwriteBufferSegment output, "null", cursorLocation, isValueString
+                        Case Else
+                            OverwriteBufferSegment output, IIf(isValueDate, Format$(.Item(keyOrIndex(iCount)), "yyyy-mm-ddThh:mm:ss"), .Item(keyOrIndex(iCount))), cursorLocation, isValueString
+                    End Select
+                    
                     If isValueString Then OverwriteBufferSegment output, variableQuote, cursorLocation
                     
                 End If
@@ -591,7 +596,7 @@ Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As
                 containerObject.Add IIf(InStrB(1, value, DecimalChar) > 0, CDbl(value), CLng(value))
             End If
         Else
-            Select Case value
+            Select Case LCase$(value)
                 Case "true", "false"
                     If isContainerJsonObject Then
                         containerObject.Item(keyForValue) = CBool(value)
