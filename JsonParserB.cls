@@ -130,7 +130,7 @@ Public Function DeserializeBytes(ByRef jsonBytes() As Byte, Optional convertTime
     Set DeserializeBytes = ParseJsonString(CStr(jsonBytes))
 End Function
 
-Private Function ParseJsonString(ByRef json$) As Object
+Private Function ParseJsonString(ByVal json$) As Object
 '====================================================================================================================================================================================
 ' Summary:
 '   Non-Recursive JSON parser to convert a JSON string into a dictionary/collection.
@@ -429,29 +429,26 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
     Dim maxIndexBinary&, nextCurlyCloseBinary&, nextCurlyOpenBinary&, previousCloseBinary&, tokenIndicator$(1), nextEnclosingTokenIndex&, escapeEnclosingArrayOrObject As Boolean
 
     On Error GoTo Propagate
+    currentIndexBinary = ConvertToBinaryIndex(cursorLocation)
+    maxIndexBinary = ConvertToBinaryIndex(maxCursorLocation)
     
-    nextCurlyOpenBinary = SeekNextUnquotedBinaryCharacterIndex(json, LeftCurly, cursorLocation + INDEX_OFFSET, maxCursorLocation)
-    nextCurlyCloseBinary = SeekNextUnquotedBinaryCharacterIndex(json, RightCurly, cursorLocation + INDEX_OFFSET, maxCursorLocation)
-    nextSquareOpenBinary = SeekNextUnquotedBinaryCharacterIndex(json, LeftSquare, cursorLocation + INDEX_OFFSET, maxCursorLocation)
-    nextSquareCloseBinary = SeekNextUnquotedBinaryCharacterIndex(json, RightSquare, cursorLocation + INDEX_OFFSET, maxCursorLocation)
-    nextValidCommaTokenIndexBinary = SeekNextUnquotedBinaryCharacterIndex(json, Comma, cursorLocation + INDEX_OFFSET, maxCursorLocation)
+    nextCurlyOpenBinary = SeekNextUnquotedBinaryCharacterIndex(json, LeftCurly, currentIndexBinary + BINARY_OFFSET, maxIndexBinary, True)
+    nextCurlyCloseBinary = SeekNextUnquotedBinaryCharacterIndex(json, RightCurly, currentIndexBinary + BINARY_OFFSET, maxIndexBinary, True)
+    nextSquareOpenBinary = SeekNextUnquotedBinaryCharacterIndex(json, LeftSquare, currentIndexBinary + BINARY_OFFSET, maxIndexBinary, True)
+    nextSquareCloseBinary = SeekNextUnquotedBinaryCharacterIndex(json, RightSquare, currentIndexBinary + BINARY_OFFSET, maxIndexBinary, True)
+    nextValidCommaTokenIndexBinary = SeekNextUnquotedBinaryCharacterIndex(json, Comma, currentIndexBinary + BINARY_OFFSET, maxIndexBinary, True)
     
-    If nextValidCommaTokenIndexBinary > 0 Then nextEnclosingTokenIndex = ConvertFromBinaryIndex(nextValidCommaTokenIndexBinary)
-
     If nextValidCommaTokenIndexBinary > 0 Then
-        
-        currentIndexBinary = ConvertToBinaryIndex(cursorLocation)
-        maxIndexBinary = ConvertToBinaryIndex(maxCursorLocation)
         '======================================================================================================================================
         ' Determine which of [ or { is greater than cursorLocation AND appears first.
         ' If nextValidCommaTokenIndexBinary is greater than that byte,
         ' then determine if the Comma is encapsulated. If it is, then find the next Comma that isn't encapsulated to find the end of the value.
         '======================================================================================================================================
-        If IsValueInRange(nextCurlyOpenBinary, currentIndexBinary + BINARY_OFFSET, nextValidCommaTokenIndexBinary - BINARY_OFFSET, True) And (nextCurlyOpenBinary < nextSquareOpenBinary Or nextSquareOpenBinary = 0) Then
+        If IsValueInRange(nextCurlyOpenBinary, currentIndexBinary + BINARY_OFFSET, nextValidCommaTokenIndexBinary, False) And (nextCurlyOpenBinary < nextSquareOpenBinary Or nextSquareOpenBinary = 0) Then
             tokenIndicator(0) = LeftCurly: tokenIndicator(1) = RightCurly
             nextOpenBinary = nextCurlyOpenBinary: nextCloseBinary = nextCurlyCloseBinary
             escapeEnclosingArrayOrObject = True
-        ElseIf IsValueInRange(nextSquareOpenBinary, currentIndexBinary + BINARY_OFFSET, nextValidCommaTokenIndexBinary - BINARY_OFFSET, True) And (nextSquareOpenBinary < nextCurlyOpenBinary Or nextCurlyOpenBinary = 0) Then
+        ElseIf IsValueInRange(nextSquareOpenBinary, currentIndexBinary + BINARY_OFFSET, nextValidCommaTokenIndexBinary, False) And (nextSquareOpenBinary < nextCurlyOpenBinary Or nextCurlyOpenBinary = 0) Then
             tokenIndicator(0) = LeftSquare: tokenIndicator(1) = RightSquare
             nextOpenBinary = nextSquareOpenBinary: nextCloseBinary = nextSquareCloseBinary
             escapeEnclosingArrayOrObject = True
@@ -463,23 +460,26 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
             ' If open greater than the previous close or next open = 0 then you have exited the object/array that triggered the loop.
             Do
                 previousCloseBinary = nextCloseBinary
-                nextCloseBinary = InStrB(previousCloseBinary + BINARY_OFFSET, json, tokenIndicator(1))
-                nextOpenBinary = InStrB(nextOpenBinary + BINARY_OFFSET, json, tokenIndicator(0))
+                nextCloseBinary = SeekNextUnquotedBinaryCharacterIndex(json, tokenIndicator(1), previousCloseBinary + BINARY_OFFSET, maxIndexBinary, True)
+                nextOpenBinary = SeekNextUnquotedBinaryCharacterIndex(json, tokenIndicator(0), nextOpenBinary + BINARY_OFFSET, maxIndexBinary, True)
             Loop Until nextOpenBinary > previousCloseBinary Or nextOpenBinary = 0 Or (previousCloseBinary >= maxIndexBinary)
 
             If previousCloseBinary < maxIndexBinary Then
                 ' Find MIN not equal to 0 of the following.
-                nextEnclosingTokenIndex = SeekNextUnquotedBinaryCharacterIndex(json, Comma, ConvertFromBinaryIndex(previousCloseBinary), maxCursorLocation)
-                minValues(0) = InStrB(previousCloseBinary + BINARY_OFFSET, json, RightCurly)
-                minValues(1) = InStrB(previousCloseBinary + BINARY_OFFSET, json, RightSquare)
+                nextEnclosingTokenIndex = SeekNextUnquotedBinaryCharacterIndex(json, Comma, previousCloseBinary, maxIndexBinary, True)
                 
-                For nextCloseBinary = 0 To 1
+                minValues(0) = SeekNextUnquotedBinaryCharacterIndex(json, RightCurly, previousCloseBinary + BINARY_OFFSET, maxIndexBinary, True)
+                minValues(1) = SeekNextUnquotedBinaryCharacterIndex(json, RightSquare, previousCloseBinary + BINARY_OFFSET, maxIndexBinary, True)
+
+                For nextCloseBinary = LBound(minValues) To UBound(minValues)
                     If IsValueInRange(minValues(nextCloseBinary), 1, nextEnclosingTokenIndex, True) Or nextEnclosingTokenIndex <= 0 Then nextEnclosingTokenIndex = minValues(nextCloseBinary)
                 Next nextCloseBinary
                 If nextEnclosingTokenIndex > 0 Then nextEnclosingTokenIndex = ConvertFromBinaryIndex(nextEnclosingTokenIndex)
             Else
                 nextEnclosingTokenIndex = maxCursorLocation
             End If
+        Else
+            nextEnclosingTokenIndex = ConvertFromBinaryIndex(nextValidCommaTokenIndexBinary)
         End If
     End If
 
@@ -527,7 +527,7 @@ Private Sub GetValueRangeAndKey(ByRef json$, ByRef minimumIndex&, ByRef maxSearc
         ' Does key start with a qukote?
         If Mid$(json, keyStartLocation, 1) = QuoteCharacter Then
 
-            keyValueDelimiterIndex = ConvertFromBinaryIndex(SeekNextUnquotedBinaryCharacterIndex(json, ColonCharacter, keyStartLocation, valueEndLocation))
+            keyValueDelimiterIndex = ConvertFromBinaryIndex(SeekNextUnquotedBinaryCharacterIndex(json, ColonCharacter, keyStartLocation, valueEndLocation, False))
             ' Is there a ColonCharacter outside of quotes?
             If keyValueDelimiterIndex > 0 Then
                 ' Find boundaries of key using location of key-value delimiter.
@@ -882,7 +882,7 @@ CatchRight:
     Resume NextLoop
 End Function
 
-Private Function SeekNextUnquotedBinaryCharacterIndex(ByRef json$, ByRef character$, ByRef startIndex&, ByRef maxSearchIndex&) As Long
+Private Function SeekNextUnquotedBinaryCharacterIndex(ByRef json$, ByRef character$, ByRef startIndex&, ByRef maxSearchIndex&, indexLimitsAreBinary As Boolean) As Long
 '======================================================================================================================================
 ' Summary
 '       Searches for the next [character] not contained within quotes and returns its binary index
@@ -901,9 +901,16 @@ Private Function SeekNextUnquotedBinaryCharacterIndex(ByRef json$, ByRef charact
     
     On Error GoTo Return_Default
     
-    maxIndexBinary = ConvertToBinaryIndex(maxSearchIndex)
+    If indexLimitsAreBinary Then
+        maxIndexBinary = maxSearchIndex
+        rightQuoteIndexBinary = startIndex
+    Else
+        maxIndexBinary = ConvertToBinaryIndex(maxSearchIndex)
+        rightQuoteIndexBinary = ConvertToBinaryIndex(startIndex)
+    End If
+
     ' - BINARY_OFFSET so that start position will be maintained when calculating [characterIndexBinary] and following quotes.
-    rightQuoteIndexBinary = ConvertToBinaryIndex(startIndex) - BINARY_OFFSET
+    rightQuoteIndexBinary = rightQuoteIndexBinary - BINARY_OFFSET
     
     updateCharacterlocation = True
     
