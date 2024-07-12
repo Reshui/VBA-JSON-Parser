@@ -335,6 +335,7 @@ DetermineIndent:
     Else
         OverwriteBufferSegment output, LeftSquare, cursorLocation
     End If
+    
     If prettyPrint Then OverwriteBufferSegment output, vbNewLine, cursorLocation
     
     If valuesAvailalbe Then
@@ -474,6 +475,7 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
                 For nextCloseBinary = LBound(minValues) To UBound(minValues)
                     If IsValueInRange(minValues(nextCloseBinary), 1, nextEnclosingTokenIndex, True) Or nextEnclosingTokenIndex <= 0 Then nextEnclosingTokenIndex = minValues(nextCloseBinary)
                 Next nextCloseBinary
+                
                 If nextEnclosingTokenIndex > 0 Then nextEnclosingTokenIndex = ConvertFromBinaryIndex(nextEnclosingTokenIndex)
             Else
                 nextEnclosingTokenIndex = maxCursorLocation
