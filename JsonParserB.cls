@@ -76,7 +76,7 @@ End Type
 
 Private Type TimeZoneInformation
     Bias As Long 'The bias is the difference, in minutes, between Coordinated Universal Time (UTC) and local time.
-    StandardName(31) As Integer
+    standardName(31) As Integer
     StandardDate As SystemTime
     StandardBias As Long
     DaylightName(31) As Integer
@@ -166,8 +166,8 @@ Private Function ParseJsonString(ByVal json$) As Object
         CreateObjectOnStack heirarchyStack, createJsonObject:=isValueJsonObject
         Set jsonContainer = heirarchyStack(1)
         
-        AddValueToObject jsonContainer, isValueJsonObject, addingCursorLimit:=True, numberToAdd:=jsonLength, keyForValue:=cursorLimit
-        AddValueToObject jsonContainer, isValueJsonObject, addingCursorLimit:=True, numberToAdd:=jsonLength, keyForValue:=cursorLocationAfterCompletion
+        AddValueToObject jsonContainer, isValueJsonObject, addingCursorLimit:=True, cursorLimit:=jsonLength, keyForValue:=cursorLimit
+        AddValueToObject jsonContainer, isValueJsonObject, addingCursorLimit:=True, cursorLimit:=jsonLength, keyForValue:=cursorLocationAfterCompletion
 
         isContainerJsonObject = isValueJsonObject
         
@@ -212,9 +212,9 @@ Private Function ParseJsonString(ByVal json$) As Object
     
                             isContainerJsonObject = Not TypeOf jsonContainer Is Collection
                             ' Add key to limit the cursor range for object.
-                            AddValueToObject jsonContainer, isContainerJsonObject, addingCursorLimit:=True, numberToAdd:=valueEndIndex, keyForValue:=cursorLimit
+                            AddValueToObject jsonContainer, isContainerJsonObject, addingCursorLimit:=True, cursorLimit:=valueEndIndex, keyForValue:=cursorLimit
                             ' Index to update cursorLocation to once array or object has been completed.
-                            AddValueToObject jsonContainer, isContainerJsonObject, addingCursorLimit:=True, numberToAdd:=nextCursorLocation, keyForValue:=cursorLocationAfterCompletion
+                            AddValueToObject jsonContainer, isContainerJsonObject, addingCursorLimit:=True, cursorLimit:=nextCursorLocation, keyForValue:=cursorLocationAfterCompletion
                             cursorLocation = valueStartIndex
                         Else
                             If isValueAvailable Then
@@ -402,12 +402,7 @@ End Function
 Private Sub CreateObjectOnStack(stack As Collection, createJsonObject As Boolean)
 
     If createJsonObject Then
-        #If Mac Then
-            ' https://github.com/VBA-tools/VBA-Dictionary
-            stack.Add New Dictionary
-        #Else
-            stack.Add CreateObject("Scripting.Dictionary")
-        #End If
+        stack.Add GetNewDictionary()
     Else
         stack.Add New Collection
     End If
@@ -496,6 +491,7 @@ Private Function GetNextEnclosingDelimiterLocation(json$, cursorLocation&, maxCu
     
     GetNextEnclosingDelimiterLocation = nextEnclosingTokenIndex
     Exit Function
+    
 Propagate:
     #If DebugActive Then
         Stop: Resume
@@ -560,8 +556,22 @@ PropagateError:
     PropagateError Err, "GetValueRangeAndKey"
 End Sub
 
-Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As Boolean, Optional value$, Optional isValueString As Boolean, Optional newChild As Object, Optional keyForValue$, Optional addingCursorLimit As Boolean, Optional numberToAdd As Long)
-
+Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As Boolean, Optional value$, _
+                Optional isValueString As Boolean, Optional newChild As Object, Optional keyForValue$, _
+                Optional addingCursorLimit As Boolean, Optional cursorLimit As Long)
+'======================================================================================================================================
+' Summary
+'       Adds a value to a dictionary or collection.
+' Parameters:
+'       [containerObject] - Object that will have a value added to it.
+'       [isContainerJsonObject] - True if [containerObject] is a Dictionary.
+'       [value] - Finalized value to add to dictionary.
+'       [isValueString] - True if vale should be stored as a string.
+'       [newChild] - Alternate object to add to [containerObject] instead of [value]
+'       [keyForValue] - Key for [value] when [containerObject] is a Dictionary.
+'       [addingCursorLimit] - True if adding a temporary number to track a cursor limit.
+'       [cursorLimit] - Tracked cursor limit.
+'======================================================================================================================================
     On Error GoTo PropagateError
     
     Dim isoDate As Date, dateParseFailed As Boolean: dateParseFailed = True
@@ -570,9 +580,9 @@ Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As
         If addingCursorLimit Then
             ' This is just used for tracking byte locations. key is guaranteed
             If isContainerJsonObject Then
-                containerObject.Item(keyForValue) = numberToAdd
+                containerObject.Item(keyForValue) = cursorLimit
             Else
-                containerObject.Add numberToAdd, keyForValue
+                containerObject.Add cursorLimit, keyForValue
             End If
         ElseIf isValueString Then
         
@@ -596,9 +606,9 @@ Private Sub AddValueToObject(containerObject As Object, isContainerJsonObject As
             End If
         ElseIf IsNumeric(value) Then
             If isContainerJsonObject Then
-                containerObject.Item(keyForValue) = IIf(InStrB(1, value, DecimalChar) > 0, CDbl(value), CLng(value))
+                containerObject.Item(keyForValue) = IIf(InStrB(1, value, DecimalChar) <> 0, CDbl(value), CLng(value))
             Else
-                containerObject.Add IIf(InStrB(1, value, DecimalChar) > 0, CDbl(value), CLng(value))
+                containerObject.Add IIf(InStrB(1, value, DecimalChar) <> 0, CDbl(value), CLng(value))
             End If
         Else
             Select Case LCase$(value)
@@ -766,6 +776,8 @@ Private Function ProcessCharactersInRange(ByRef json$, ByRef startIndex&, ByRef 
                                 Case Else
                                     Err.Raise INVALID_JSON_FORMAT_ERROR, Description:="Invalid Format: Unescaped backslash with no special character."
                             End Select
+                        Else
+                            characterIndex = characterIndex - INDEX_OFFSET
                         End If
                     End If
                     previousSpecialIsValid = True
@@ -958,13 +970,13 @@ Return_Default:
     SeekNextUnquotedBinaryCharacterIndex = 0
 End Function
 
-Private Sub PropagateError(e As ErrObject, procedureName$, Optional moreDetails$ = vbNullString)
+Private Sub PropagateError(e As ErrObject, ProcedureName$, Optional moreDetails$ = vbNullString)
     Dim firstPropagation As Boolean, sourceParts$()
     
     Const delim$ = ": "
     With e
-        AddParentToErrSource e, procedureName
-        If LenB(moreDetails) > 0 Then .Description = moreDetails & vbNewLine & .Description
+        AddParentToErrSource e, ProcedureName
+        If LenB(moreDetails) <> 0 Then .Description = moreDetails & vbNewLine & .Description
         .Raise .Number, .Source, .Description
     End With
     
@@ -996,15 +1008,15 @@ Private Sub OverwriteBufferSegment(buffer$, textToAdd$, cursor&, Optional proces
 '======================================================================================================================================
     Dim additionLength&
         
-    If LenB(textToAdd) > 0 Then
+    If LenB(textToAdd) <> 0 Then
         If processFurther Then
-            If InStrB(1, textToAdd, BackslashCharacter) > 0 Then textToAdd = Replace$(textToAdd, BackslashCharacter, "\\")
-            If InStrB(1, textToAdd, vbTab) > 0 Then textToAdd = Replace$(textToAdd, vbTab, "\t")
-            If InStrB(1, textToAdd, QuoteCharacter) > 0 Then textToAdd = Replace$(textToAdd, QuoteCharacter, "\""")
-            If InStrB(1, textToAdd, vbCr) > 0 Then textToAdd = Replace$(textToAdd, vbCr, "\r")
-            If InStrB(1, textToAdd, vbBack) > 0 Then textToAdd = Replace$(textToAdd, vbBack, "\b")
-            If InStrB(1, textToAdd, vbLf) > 0 Then textToAdd = Replace$(textToAdd, vbLf, "\n")
-            If InStrB(1, textToAdd, vbFormFeed) > 0 Then textToAdd = Replace$(textToAdd, vbFormFeed, "\f")
+            If InStrB(1, textToAdd, BackslashCharacter) <> 0 Then textToAdd = Replace$(textToAdd, BackslashCharacter, "\\")
+            If InStrB(1, textToAdd, vbTab) <> 0 Then textToAdd = Replace$(textToAdd, vbTab, "\t")
+            If InStrB(1, textToAdd, QuoteCharacter) <> 0 Then textToAdd = Replace$(textToAdd, QuoteCharacter, "\""")
+            If InStrB(1, textToAdd, vbCr) <> 0 Then textToAdd = Replace$(textToAdd, vbCr, "\r")
+            If InStrB(1, textToAdd, vbBack) <> 0 Then textToAdd = Replace$(textToAdd, vbBack, "\b")
+            If InStrB(1, textToAdd, vbLf) <> 0 Then textToAdd = Replace$(textToAdd, vbLf, "\n")
+            If InStrB(1, textToAdd, vbFormFeed) <> 0 Then textToAdd = Replace$(textToAdd, vbFormFeed, "\f")
             'To Do: Convert Unicode characters.
     '        #If Mac Then
     '
@@ -1025,7 +1037,7 @@ Private Sub OverwriteBufferSegment(buffer$, textToAdd$, cursor&, Optional proces
         End If
         
         additionLength = Len(textToAdd)
-        If additionLength > 0 Then
+        If additionLength <> 0 Then
             ' Increase buffer until it can contain textToAdd.
             Do Until cursor + additionLength + 1 <= Len(buffer)
                 buffer = buffer & String$(1000, " ")
@@ -1040,7 +1052,7 @@ Private Sub OverwriteBufferSegment(buffer$, textToAdd$, cursor&, Optional proces
 End Sub
 Private Function IsTextValidInteger(queriedText$, wantedLength&, ensureNumberLength As Boolean, ensureTextLength As Boolean, ByRef returnedNumber As Integer) As Boolean
     ' Trim text beforehand.
-    If Not (InStrB(queriedText, "$") > 0 Or InStrB(queriedText, "+") > 0 Or InStrB(queriedText, "-") > 0 Or InStrB(queriedText, ".") > 0) Then
+    If Not (InStrB(queriedText, "$") <> 0 Or InStrB(queriedText, "+") <> 0 Or InStrB(queriedText, "-") <> 0 Or InStrB(queriedText, ".") <> 0) Then
         If ensureTextLength And IsNumeric(queriedText) And Len(queriedText) = wantedLength Then
             returnedNumber = queriedText
             IsTextValidInteger = True
@@ -1050,6 +1062,16 @@ Private Function IsTextValidInteger(queriedText$, wantedLength&, ensureNumberLen
         End If
     End If
 End Function
+Private Function GetNewDictionary() As Object
+
+    #If Mac Then
+        ' https://github.com/VBA-tools/VBA-Dictionary
+        Set GetNewDictionary = New Dictionary
+    #Else
+        Set GetNewDictionary = CreateObject("Scripting.Dictionary")
+    #End If
+
+End Function
 Public Function TryParseExactIso8601DateUTC(iso$, convertToUTC As Boolean, convertToLocalTime As Boolean, returnedDate As Date, Optional ByVal dateFormat$) As Boolean
 '======================================================================================================================================
 ' Summary
@@ -1058,7 +1080,7 @@ Public Function TryParseExactIso8601DateUTC(iso$, convertToUTC As Boolean, conve
 '       [iso] - Text to parse.
 '       [returnDate] - Variable that stores the parsed date from [iso] if successful.
 ' Returns:
-'   True if a date was successfuly parsed; otherwise, False.
+'       True if a date was successfuly parsed; otherwise, False.
 '======================================================================================================================================
     Dim dateParts$(), isoDate As Date, isoTime As Date
     
@@ -1066,15 +1088,11 @@ Public Function TryParseExactIso8601DateUTC(iso$, convertToUTC As Boolean, conve
     character$, cursor As Byte, tokenCount As Byte, followingTextIsTimeZoneOffset As Boolean, subSection$, formatLength As Byte, offsetMultiplier As Integer, _
     yearAvailalbe As Boolean, isOrdinal As Boolean
 
-    #If Mac Then
-        Set dict = New Dictionary
-    #Else
-        Set dict = CreateObject("Scripting.Dictionary")
-    #End If
-
+    Set dict = GetNewDictionary()
+        
     formatLength = Len(dateFormat)
 
-    If formatLength > IIf(InStrB(iso, "K") > 0, Len(iso) + 6, Len(iso)) Then Exit Function
+    If formatLength > IIf(InStrB(iso, "K") <> 0, Len(iso) + 6, Len(iso)) Then Exit Function
     
     On Error GoTo ReturnFalse
     
@@ -1089,7 +1107,7 @@ Public Function TryParseExactIso8601DateUTC(iso$, convertToUTC As Boolean, conve
         Loop
 
         subSection = Mid$(iso, (cursor - tokenCount), tokenCount)
-        ignoreDict = tokenCount = 1 And InStrB(":-", subSection) > 0
+        ignoreDict = tokenCount = 1 And InStrB(":-", subSection) <> 0
 
         dictKey = Mid$(dateFormat, (cursor - tokenCount), tokenCount)
 
